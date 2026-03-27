@@ -145,11 +145,11 @@ const ROLE_CLASS: Record<string, string> = {
   dublador:         "bg-violet-500/12 text-violet-400 border border-violet-500/25",
   director:         "bg-blue-500/12 text-blue-400 border border-blue-500/25",
   diretor:          "bg-blue-500/12 text-blue-400 border border-blue-500/25",
-  engineer:         "bg-blue-500/12 text-blue-400 border border-blue-500/25",
-  engenheiro_audio: "bg-blue-500/12 text-blue-400 border border-blue-500/25",
+  engineer:         "bg-amber-500/12 text-amber-400 border border-amber-500/25",
+  engenheiro_audio: "bg-amber-500/12 text-amber-400 border border-amber-500/25",
   platform_owner:   "bg-rose-500/12 text-rose-400 border border-rose-500/25",
   studio_admin:     "bg-primary/12 text-primary border border-primary/25",
-  aluno:            "bg-zinc-500/12 text-zinc-400 border border-zinc-500/25",
+  aluno:            "bg-cyan-500/12 text-cyan-400 border border-cyan-500/25",
 };
 interface RoleBadgeProps {
   role: string;

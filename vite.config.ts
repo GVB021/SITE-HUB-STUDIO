@@ -24,7 +24,6 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
-      "@studio": path.resolve(import.meta.dirname, "client/src/studio"),
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
@@ -33,11 +32,9 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    watch: {
-      usePolling: true,
-    },
     fs: {
-      strict: false,
+      strict: true,
+      deny: ["**/.*"],
     },
   },
 });

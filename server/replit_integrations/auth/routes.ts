@@ -5,7 +5,6 @@ import { isAuthenticated, hashPassword } from "./replitAuth";
 import { authStorage } from "./storage";
 import { storage } from "../../storage";
 import { logger } from "../../lib/logger";
-import { normalizeEmail, onlyDigits, parseBirthDate, validateSimplifiedRegisterInput } from "@shared/register-validation";
 
 const loginSchema = z.object({
   email: z.string().email("Email invalido"),
@@ -13,46 +12,26 @@ const loginSchema = z.object({
 });
 
 const registerSchema = z.object({
-  email: z.string(),
-  password: z.string(),
-  fullName: z.string(),
-  studioId: z.string(),
-  whatsapp: z.string(),
-  birthDate: z.string(),
-}).strict();
-
-function buildComplementaryProfile(input: any) {
-  const keys = [
-    "artistName",
-    "phone",
-    "altPhone",
-    "birthDate",
-    "city",
-    "state",
-    "country",
-    "mainLanguage",
-    "additionalLanguages",
-    "experience",
-    "specialty",
-    "bio",
-    "portfolioUrl",
-  ] as const;
-
-  const out: Record<string, any> = {};
-  for (const k of keys) {
-    const v = (input as any)[k];
-    if (typeof v === "string") {
-      const trimmed = v.trim();
-      if (trimmed) out[k] = trimmed;
-    }
-  }
-  return out;
-}
+  email: z.string().email("Email invalido"),
+  password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
+  fullName: z.string().min(2, "Nome completo obrigatorio"),
+  artistName: z.string().optional().default(""),
+  phone: z.string().min(1, "Telefone obrigatorio"),
+  altPhone: z.string().optional().default(""),
+  birthDate: z.string().optional().default(""),
+  city: z.string().min(1, "Cidade obrigatoria"),
+  state: z.string().min(1, "Estado obrigatorio"),
+  country: z.string().min(1, "Pais obrigatorio"),
+  mainLanguage: z.string().min(1, "Idioma principal obrigatorio"),
+  additionalLanguages: z.string().optional().default(""),
+  experience: z.string().min(1, "Experiencia obrigatoria"),
+  specialty: z.string().min(1, "Especialidade obrigatoria"),
+  bio: z.string().min(1, "Bio obrigatoria"),
+  portfolioUrl: z.string().optional().default(""),
+  studioId: z.string().min(1, "Selecione um estudio"),
+});
 
 async function seedPlatformOwner() {
-  if (!process.env.DATABASE_URL) {
-    return;
-  }
   try {
     const existing = await authStorage.getUserByEmail("borbaggabriel@gmail.com");
     if (!existing) {
@@ -125,121 +104,66 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/auth/request-password-reset", async (req, res) => {
-    try {
-      const { email } = z.object({ email: z.string().email() }).parse(req.body || {});
-      const safeEmail = email.toLowerCase().trim();
-
-      try {
-        const allUsers = await storage.getAllUsers();
-        const owners = allUsers.filter((u: any) => u.role === "platform_owner");
-        for (const owner of owners) {
-          await storage.createNotification({
-            userId: owner.id,
-            type: "password_reset_request",
-            title: "Solicitação de recuperação de senha",
-            message: `Solicitação recebida para: ${safeEmail}`,
-            relatedId: safeEmail,
-          });
-        }
-      } catch (notifyErr) {
-        logger.error("Error creating password reset request notifications", { error: String(notifyErr) });
-      }
-
-      return res.status(200).json({ ok: true });
-    } catch {
-      return res.status(200).json({ ok: true });
-    }
-  });
-
   app.post("/api/auth/register", async (req, res) => {
     try {
       const data = registerSchema.parse(req.body);
-      const validationErrors = validateSimplifiedRegisterInput({
-        email: data.email,
-        fullName: data.fullName,
-        password: data.password,
-        studioId: data.studioId,
-        whatsapp: data.whatsapp,
-        birthDate: data.birthDate,
-      });
-      if (Object.keys(validationErrors).length > 0) {
-        return res.status(400).json({ message: Object.values(validationErrors)[0], errors: validationErrors });
-      }
-
-      const safeEmail = normalizeEmail(data.email);
-      const existing = await authStorage.getUserByEmail(safeEmail);
+      const existing = await authStorage.getUserByEmail(data.email);
       if (existing) {
         return res.status(409).json({ message: "Este email ja esta em uso" });
       }
 
-      const studioId = String(data.studioId || "").trim();
-      const studio = await storage.getStudio(studioId);
-      if (!studio || !studio.isActive) {
+      const studio = await storage.getStudio(data.studioId);
+      if (!studio) {
         return res.status(400).json({ message: "Estudio selecionado nao encontrado" });
       }
 
-      const birthDateParsed = parseBirthDate(data.birthDate);
-      if (!birthDateParsed) {
-        return res.status(400).json({ message: "Data de nascimento invalida" });
-      }
-
       const user = await authStorage.createUser({
-        email: safeEmail,
+        email: data.email.toLowerCase().trim(),
         passwordHash: hashPassword(data.password),
-        fullName: data.fullName.trim(),
-        displayName: data.fullName.trim(),
-        artistName: null,
-        phone: onlyDigits(data.whatsapp),
-        altPhone: null,
-        birthDate: data.birthDate,
-        city: null,
-        state: null,
-        country: null,
-        mainLanguage: null,
-        additionalLanguages: null,
-        experience: null,
-        specialty: null,
-        bio: null,
-        portfolioUrl: null,
-        status: "approved",
+        fullName: data.fullName,
+        artistName: data.artistName || null,
+        displayName: data.fullName,
+        phone: data.phone,
+        altPhone: data.altPhone || null,
+        birthDate: data.birthDate || null,
+        city: data.city,
+        state: data.state,
+        country: data.country,
+        mainLanguage: data.mainLanguage,
+        additionalLanguages: data.additionalLanguages || null,
+        experience: data.experience,
+        specialty: data.specialty,
+        bio: data.bio,
+        portfolioUrl: data.portfolioUrl || null,
+        status: "pending",
         role: "user",
       });
 
-      const complementary = buildComplementaryProfile({
-        ...data,
-        phone: onlyDigits(data.whatsapp),
-        birthDate: birthDateParsed.toISOString().slice(0, 10),
+      await storage.createMembership({
+        userId: user.id,
+        studioId: data.studioId,
+        role: "pending",
+        status: "pending",
       });
-      if (Object.keys(complementary).length > 0) {
-        try {
-          await storage.upsertUserProfile(user.id, complementary);
-        } catch (profileErr) {
-          logger.error("Failed to upsert user profile", { error: String(profileErr), userId: user.id });
+
+      try {
+        const studioAdmins = await storage.getStudioAdmins(data.studioId);
+        for (const admin of studioAdmins) {
+          await storage.createNotification({
+            userId: admin.id,
+            type: "member_request",
+            title: "Novo cadastro pendente",
+            message: `${data.fullName} (${data.email}) solicitou acesso ao estudio ${studio.name}.`,
+            relatedId: user.id,
+          });
         }
+      } catch (notifErr) {
+        logger.error("Error sending notifications to studio admins", { error: String(notifErr) });
       }
 
-      const membership = await storage.createMembership({
-        userId: user.id,
-        studioId,
-        role: "dublador",
-        status: "approved",
-      });
-
-      logger.info("New user registered (approved)", { email: safeEmail, id: user.id, studioId });
-      req.login(user, (loginErr) => {
-        if (loginErr) {
-          logger.error("Register auto-login error", { error: String(loginErr), userId: user.id });
-          return res.status(500).json({ message: "Conta criada, mas falha ao autenticar" });
-        }
-        const { passwordHash, ...safeUser } = user;
-        return res.status(201).json({
-          user: safeUser,
-          studioId,
-          membershipId: membership.id,
-          redirectTo: `/hub-dub/studio/${studioId}/dashboard`,
-        });
-      });
+      logger.info("New user registered (pending)", { email: data.email, id: user.id, studioId: data.studioId });
+      const { passwordHash, ...safeUser } = user;
+      return res.status(201).json({ user: safeUser });
     } catch (err: any) {
       if (err.errors) {
         return res.status(400).json({ message: err.errors[0]?.message || "Dados invalidos" });
@@ -272,48 +196,6 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       logger.error("Error fetching user", { error: String(error) });
       res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
-
-  const userProfilePatchSchema = z.object({
-    artistName: z.string().optional(),
-    phone: z.string().optional(),
-    altPhone: z.string().optional(),
-    birthDate: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    country: z.string().optional(),
-    mainLanguage: z.string().optional(),
-    additionalLanguages: z.string().optional(),
-    experience: z.string().optional(),
-    specialty: z.string().optional(),
-    bio: z.string().optional(),
-    portfolioUrl: z.string().optional(),
-  }).strict();
-
-  app.get("/api/users/me/profile", isAuthenticated, async (req, res) => {
-    try {
-      const user = req.user as any;
-      const profile = await storage.getUserProfile(user.id);
-      return res.status(200).json({ profile });
-    } catch (err) {
-      logger.error("Error fetching user profile", { error: String(err) });
-      return res.status(500).json({ message: "Erro ao buscar perfil" });
-    }
-  });
-
-  app.patch("/api/users/me/profile", isAuthenticated, async (req, res) => {
-    try {
-      const user = req.user as any;
-      const patch = userProfilePatchSchema.parse(req.body || {});
-      const profile = await storage.upsertUserProfile(user.id, patch);
-      return res.status(200).json({ profile });
-    } catch (err: any) {
-      if (err?.errors) {
-        return res.status(400).json({ message: err.errors?.[0]?.message || "Dados invalidos" });
-      }
-      logger.error("Error updating user profile", { error: String(err) });
-      return res.status(500).json({ message: "Erro ao atualizar perfil" });
     }
   });
 }

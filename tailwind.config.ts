@@ -6,9 +6,9 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: ".5625rem", /* 9px */
+        md: ".375rem", /* 6px */
+        sm: ".1875rem", /* 3px */
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -77,7 +77,7 @@ export default {
         },
         status: {
           online: "rgb(34 197 94)",
-          away: "rgb(59 130 246)",
+          away: "rgb(245 158 11)",
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
         },

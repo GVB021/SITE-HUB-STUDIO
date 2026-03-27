@@ -15,26 +15,11 @@ import {
   type Production, type Session,
   insertProductionSchema, insertCharacterSchema, insertTakeSchema, insertSessionSchema,
 } from "@shared/schema";
-import { normalizePlatformRole } from "@shared/roles";
 import { requireAuth, requireAdmin, requireStudioAccess, requireStudioRole } from "./middleware/auth";
 import { logger } from "./lib/logger";
-import { spawn } from "child_process";
-import { randomUUID } from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { Readable } from "stream";
-import {
-  checkSupabaseConnection,
-  configureSupabase,
-  deleteFromSupabaseStorage,
-  downloadFromSupabaseStorageUrl,
-  isSupabaseConfigured,
-  parseSupabaseStorageUrl,
-  uploadToSupabaseStorage,
-} from "./lib/supabase";
-import { decideStudioAutoEntry } from "./lib/studio-auto-entry";
-import { enqueueTakeCompletedNotification } from "./video-sync";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -42,160 +27,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const uploadsDir = path.join(process.cwd(), "public", "uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const mediaJobsDir = path.join(process.cwd(), "public", "media-jobs");
-fs.mkdirSync(mediaJobsDir, { recursive: true });
-
-const mediaUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const original = file.originalname || "media";
-      const safe = original.replace(/[^a-zA-Z0-9_.\-]/g, "");
-      const ext = path.extname(safe);
-      const base = safe.slice(0, Math.max(0, safe.length - ext.length));
-      cb(null, `${base || "media"}_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
-    },
-  }),
-  limits: { fileSize: 1024 * 1024 * 1024 },
-});
-
-function isTakeNotificationReceiverRole(role: unknown) {
-  const normalized = String(role || "").trim().toLowerCase();
-  return normalized === "diretor" || normalized === "director" || normalized === "studio_admin";
-}
-
 function safeAudioPath(audioUrl: string): string | null {
   const normalized = audioUrl.replace(/^\/+/, "");
   const resolved = path.resolve(process.cwd(), "public", normalized);
   const uploadsBase = path.resolve(process.cwd(), "public", "uploads");
   if (!resolved.startsWith(uploadsBase)) return null;
   return resolved;
-}
-
-function isHttpUrl(input: string) {
-  return /^https?:\/\//i.test(String(input || ""));
-}
-
-function filenameFromAudioUrl(audioUrl: string, fallback = "take.wav") {
-  const raw = String(audioUrl || "").trim();
-  if (!raw) return fallback;
-  if (!isHttpUrl(raw)) {
-    const base = path.basename(raw);
-    return base || fallback;
-  }
-  try {
-    const u = new URL(raw);
-    const base = path.basename(u.pathname);
-    return base || fallback;
-  } catch {
-    const parts = raw.split("/");
-    return parts[parts.length - 1] || fallback;
-  }
-}
-
-function toNodeReadable(body: any) {
-  if (!body) return null;
-  try {
-    return Readable.fromWeb(body);
-  } catch {
-    return null;
-  }
-}
-
-function sendFileWithRange(req: Request, res: Response, filePath: string, contentType = "audio/wav") {
-  const stat = fs.statSync(filePath);
-  const total = stat.size;
-  const range = String(req.headers.range || "");
-  res.setHeader("Accept-Ranges", "bytes");
-
-  if (!range) {
-    res.status(200);
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Length", String(total));
-    fs.createReadStream(filePath).pipe(res);
-    return;
-  }
-
-  const m = range.match(/bytes=(\d+)-(\d+)?/);
-  if (!m) {
-    res.status(416);
-    res.setHeader("Content-Range", `bytes */${total}`);
-    res.end();
-    return;
-  }
-
-  const start = Math.min(total - 1, Math.max(0, Number(m[1] || 0)));
-  const endRaw = m[2] ? Number(m[2]) : total - 1;
-  const end = Math.min(total - 1, Math.max(start, endRaw));
-  const chunkSize = end - start + 1;
-
-  res.status(206);
-  res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
-  res.setHeader("Content-Length", String(chunkSize));
-  fs.createReadStream(filePath, { start, end }).pipe(res);
-}
-
-async function fetchAudioResponse(audioUrl: string, range?: string) {
-  if (isSupabaseConfigured() && parseSupabaseStorageUrl(audioUrl)) {
-    return await downloadFromSupabaseStorageUrl(audioUrl, { range });
-  }
-  const res = await fetch(audioUrl, { headers: range ? { range } : undefined });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${text}`.trim());
-  }
-  return res;
-}
-
-function safeJobId(jobId: string): string | null {
-  const cleaned = jobId.replace(/[^a-zA-Z0-9_\-]/g, "");
-  if (!cleaned || cleaned.length < 8) return null;
-  return cleaned;
-}
-
-function normalizeSegment(input: string) {
-  const raw = (input || "").trim() || "sem_nome";
-  const noAccents = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const snake = noAccents
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toLowerCase();
-  return snake || "sem_nome";
-}
-
-function normalizeTokenUpper(input: string) {
-  const raw = (input || "").trim() || "SEM_NOME";
-  const noAccents = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const token = noAccents
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase();
-  return token || "SEM_NOME";
-}
-
-function normalizeTimecodeToken(input: string) {
-  const digits = String(input || "").replace(/\D/g, "");
-  return digits || "000000000";
-}
-
-function secondsToTimecodeToken(seconds: number) {
-  const totalMs = Math.max(0, Math.round((Number(seconds) || 0) * 1000));
-  const hh = String(Math.floor(totalMs / 3600000)).padStart(2, "0");
-  const mm = String(Math.floor((totalMs % 3600000) / 60000)).padStart(2, "0");
-  const ss = String(Math.floor((totalMs % 60000) / 1000)).padStart(2, "0");
-  const ms = String(totalMs % 1000).padStart(3, "0");
-  return `${hh}${mm}${ss}${ms}`;
-}
-
-function jobStatusPath(jobId: string): string {
-  return path.join(mediaJobsDir, jobId, "status.json");
-}
-
-function ensureJobDir(jobId: string): string {
-  const dir = path.join(mediaJobsDir, jobId);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 async function logAdminAction(req: Request, action: string, details?: string) {
@@ -268,100 +105,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/media-jobs", mediaUpload.single("media"), async (req, res) => {
-    try {
-      if (!req.file) return res.status(400).json({ message: "Arquivo não enviado" });
-
-      const filename = path.basename(req.file.path);
-      const publicRel = `/uploads/${filename}`;
-      const inputPath = safeAudioPath(publicRel);
-      if (!inputPath || !fs.existsSync(inputPath)) {
-        return res.status(400).json({ message: "Falha ao salvar arquivo" });
-      }
-
-      const jobId = randomUUID();
-      ensureJobDir(jobId);
-
-      const initialStatus = {
-        job_id: jobId,
-        status: "queued",
-        step: "queued",
-        progress: 0,
-        message: null,
-        error: null,
-        outputs: null,
-      };
-      fs.writeFileSync(jobStatusPath(jobId), JSON.stringify(initialStatus, null, 2));
-
-      const workerScript = path.join(process.cwd(), "services", "media-pipeline", "worker.py");
-      const venvPython = path.join(process.cwd(), "services", "media-pipeline", ".venv", "bin", "python");
-      const python = process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : "python3");
-      const bundledFfmpeg = path.join(process.cwd(), "services", "media-pipeline", "bin", "ffmpeg");
-      const ffmpegPath = process.env.FFMPEG_PATH || (fs.existsSync(bundledFfmpeg) ? bundledFfmpeg : "ffmpeg");
-      const jobDir = ensureJobDir(jobId);
-      const outLogPath = path.join(jobDir, "worker.log");
-      const errLogPath = path.join(jobDir, "worker.err.log");
-      const outFd = fs.openSync(outLogPath, "a");
-      const errFd = fs.openSync(errLogPath, "a");
-      const child = spawn(
-        python,
-        [workerScript, "--job-id", jobId, "--input", publicRel],
-        {
-          detached: true,
-          stdio: ["ignore", outFd, errFd],
-          env: {
-            ...process.env,
-            VHUB_REPO_ROOT: process.cwd(),
-            VHUB_PUBLIC_DIR: path.join(process.cwd(), "public"),
-            VHUB_MEDIA_JOBS_DIR: path.join(process.cwd(), "public", "media-jobs"),
-            VHUB_UPLOADS_DIR: path.join(process.cwd(), "public", "uploads"),
-            VHUB_PIPELINE_STRICT: "1",
-            FFMPEG_PATH: ffmpegPath,
-          },
-        },
-      );
-      try { fs.closeSync(outFd); } catch {}
-      try { fs.closeSync(errFd); } catch {}
-      child.on("error", (e: any) => {
-        try {
-          const failed = {
-            job_id: jobId,
-            status: "failed",
-            step: "error",
-            progress: 1,
-            message: null,
-            error: e?.message || "Falha ao iniciar worker",
-            outputs: null,
-          };
-          fs.writeFileSync(jobStatusPath(jobId), JSON.stringify(failed, null, 2));
-        } catch {}
-      });
-      child.unref();
-
-      res.status(201).json({ jobId, input: publicRel, statusUrl: `/api/media-jobs/${jobId}` });
-    } catch (err: any) {
-      logger.error("[Media Pipeline] Create job error", { message: err?.message });
-      res.status(500).json({ message: err?.message || "Erro ao criar job" });
-    }
-  });
-
-  app.get("/api/media-jobs/:jobId", async (req, res) => {
-    try {
-      const jobId = safeJobId(req.params.jobId);
-      if (!jobId) return res.status(400).json({ message: "Job inválido" });
-      const p = jobStatusPath(jobId);
-      if (!fs.existsSync(p)) return res.status(404).json({ message: "Job não encontrado" });
-      const raw = fs.readFileSync(p, "utf-8");
-      res.status(200).json(JSON.parse(raw));
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Erro ao consultar job" });
-    }
-  });
-
   // STUDIOS
   app.get("/api/studios", requireAuth, async (req, res) => {
     const user = (req as any).user!;
-    if (normalizePlatformRole(user.role) === "platform_owner") {
+    if (user.role === "platform_owner") {
       const allStudios = await storage.getStudios();
       const studiosWithRoles = await Promise.all(
         allStudios.map(async (s) => ({ ...s, userRoles: ["platform_owner"] }))
@@ -378,66 +125,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(studiosWithRoles);
   });
 
-  app.get("/api/studios/auto-entry", requireAuth, async (req, res) => {
-    const user = (req as any).user!;
-    const baseStudios = normalizePlatformRole(user.role) === "platform_owner"
-      ? await storage.getStudios()
-      : await storage.getStudiosForUser(user.id);
-
-    const decision = decideStudioAutoEntry(baseStudios);
-    if (decision.mode === "error") {
-      return res.status(404).json({ message: decision.message });
-    }
-
-    if (decision.mode === "redirect") {
-      const studio = await storage.getStudio(decision.studioId);
-      if (!studio) {
-        return res.status(404).json({ message: "Estudio nao encontrado para redirecionamento automatico" });
-      }
-      return res.status(200).json({
-        mode: "redirect",
-        studioId: decision.studioId,
-        target: `/hub-dub/studio/${decision.studioId}/dashboard`,
-        count: 1,
-      });
-    }
-
-    return res.status(200).json({
-      mode: "select",
-      count: baseStudios.length,
-    });
-  });
-
   app.get("/api/studios/:studioId", requireAuth, requireStudioAccess, async (req, res) => {
     const studio = await storage.getStudio(req.params.studioId);
     if (!studio) return res.status(404).json({ message: "Estudio nao encontrado" });
     res.status(200).json(studio);
-  });
-
-  const studioProfilePatchSchema = z.object({
-    data: z.record(z.any()),
-  }).strict();
-
-  app.get("/api/studios/:studioId/profile", requireAuth, requireStudioAccess, async (req, res) => {
-    try {
-      const profile = await storage.getStudioProfile(req.params.studioId);
-      return res.status(200).json({ profile });
-    } catch (err: any) {
-      return res.status(500).json({ message: err?.message || "Erro ao buscar perfil do estudio" });
-    }
-  });
-
-  app.patch("/api/studios/:studioId/profile", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
-    try {
-      const parsed = studioProfilePatchSchema.parse(req.body || {});
-      const profile = await storage.upsertStudioProfile(req.params.studioId, parsed.data || {});
-      return res.status(200).json({ profile });
-    } catch (err: any) {
-      if (err?.errors) {
-        return res.status(400).json({ message: err.errors?.[0]?.message || "Dados invalidos" });
-      }
-      return res.status(500).json({ message: err?.message || "Erro ao atualizar perfil do estudio" });
-    }
   });
 
   app.post("/api/studios", requireAuth, requireAdmin, async (req, res) => {
@@ -454,49 +145,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
       const ownerId = (req as any).user.id;
-      const studioData: any = { name, slug, ownerId };
+      const studioData: any = {
+        name, slug, ownerId,
+        tradeName: body.tradeName || null, cnpj: body.cnpj || null,
+        legalRepresentative: body.legalRepresentative || null,
+        email: body.email || null, phone: body.phone || null, altPhone: body.altPhone || null,
+        street: body.street || null, addressNumber: body.addressNumber || null,
+        complement: body.complement || null, neighborhood: body.neighborhood || null,
+        city: body.city || null, state: body.state || null,
+        zipCode: body.zipCode || null, country: body.country || null,
+        recordingRooms: body.recordingRooms ? Number(body.recordingRooms) : null,
+        studioType: body.studioType || null,
+        website: body.website || null, instagram: body.instagram || null, linkedin: body.linkedin || null,
+        description: body.description || null,
+        foundedYear: body.foundedYear ? Number(body.foundedYear) : null,
+        employeeCount: body.employeeCount ? Number(body.employeeCount) : null,
+      };
       const studio = await storage.createStudio(studioData, ownerId, studioAdminUserId || undefined);
-
-      const profileKeys = [
-        "tradeName",
-        "cnpj",
-        "legalRepresentative",
-        "email",
-        "phone",
-        "altPhone",
-        "street",
-        "addressNumber",
-        "complement",
-        "neighborhood",
-        "city",
-        "state",
-        "zipCode",
-        "country",
-        "recordingRooms",
-        "studioType",
-        "website",
-        "instagram",
-        "linkedin",
-        "description",
-        "foundedYear",
-        "employeeCount",
-      ] as const;
-
-      const profilePatch: Record<string, any> = {};
-      for (const k of profileKeys) {
-        const v = (body as any)[k];
-        if (typeof v === "string") {
-          const trimmed = v.trim();
-          if (trimmed) profilePatch[k] = trimmed;
-        } else if (typeof v === "number" && Number.isFinite(v)) {
-          profilePatch[k] = v;
-        } else if (v !== null && v !== undefined && v !== "") {
-          profilePatch[k] = v;
-        }
-      }
-      if (Object.keys(profilePatch).length) {
-        await storage.upsertStudioProfile(studio.id, profilePatch);
-      }
       if (studioAdminUserId) {
         await storage.createNotification({
           userId: studioAdminUserId,
@@ -750,30 +415,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      const settings = await storage.getAllSettings();
-      const storageProvider = "supabase";
-      const takesPath = String(req.body.takesPath || settings.DEFAULT_TAKES_PATH || "uploads");
-
-      const allowedPaths: string[] = (() => {
-        try {
-          const raw = settings.TAKES_SAVE_PATHS || "[]";
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) return parsed.map((v) => String(v)).filter(Boolean);
-          return [];
-        } catch {
-          return [];
-        }
-      })();
-
-      if (allowedPaths.length > 0 && !allowedPaths.includes(takesPath)) {
-        return res.status(400).json({ message: "Caminho de salvamento invalido" });
-      }
-
-      const status = await checkSupabaseConnection(false);
-      if (!isSupabaseConfigured() || !status.ok) {
-        return res.status(400).json({ message: "Supabase indisponivel" });
-      }
-
       const input = insertSessionSchema.parse({
         title: req.body.title,
         productionId: req.body.productionId,
@@ -781,8 +422,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         scheduledAt: new Date(req.body.scheduledAt),
         durationMinutes: req.body.durationMinutes ?? 60,
         status: req.body.status ?? "scheduled",
-        storageProvider,
-        takesPath,
         createdBy: userId,
       });
       const session = await storage.createSession(input);
@@ -848,207 +487,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/sessions/:sessionId/takes", requireAuth, upload.single("audio"), async (req, res) => {
     try {
       const sessionId = req.params.sessionId;
-      logger.info("[Take Upload] Request received", {
-        sessionId,
-        hasFile: Boolean(req.file),
-        mimeType: req.file?.mimetype || null,
-        fileSize: req.file?.size || 0,
-      });
-      const body = z.object({
-        characterId: z.string().min(1),
-        voiceActorId: z.string().min(1),
-        lineIndex: z.coerce.number().int().min(0),
-        durationSeconds: z.coerce.number().min(0).optional(),
-        qualityScore: z.coerce.number().min(0).max(100).nullable().optional(),
-        audioUrl: z.string().optional(),
-        timecode: z.string().optional(),
-        startTimeSeconds: z.coerce.number().min(0).optional(),
-      }).parse(req.body);
+      const { characterId, voiceActorId, lineIndex, durationSeconds, qualityScore } = req.body;
+
+      if (!characterId || !voiceActorId || lineIndex === undefined) {
+        return res.status(400).json({ message: "Campos obrigatorios faltando" });
+      }
 
       const sessionCheck = await verifySessionAccess(req, res, sessionId);
       if (!sessionCheck) return;
 
-      const settings = await storage.getAllSettings();
-      const storageProvider = (sessionCheck as any).storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "supabase";
-      const takesPath = (sessionCheck as any).takesPath || settings.DEFAULT_TAKES_PATH || "uploads";
-      const supabaseBucket = settings.SUPABASE_BUCKET || "takes";
-
-      let audioUrl = body.audioUrl || "";
-      let contentType = "audio/wav";
+      let audioUrl = req.body.audioUrl || "";
 
       if (req.file) {
         const originalName = req.file.originalname || "";
         const safeName = originalName.replace(/[^a-zA-Z0-9_.\-]/g, "");
-        const ext = path.extname(safeName || "") || ".wav";
-        const filename = `take_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
+        const filename = safeName || `take_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`;
         const filePath = path.join(uploadsDir, filename);
         fs.writeFileSync(filePath, req.file.buffer);
         audioUrl = `/uploads/${filename}`;
-        contentType = req.file.mimetype || contentType;
-        logger.info("[Take Upload] File buffered locally", {
-          sessionId,
-          filename,
-          contentType,
-          fileSize: req.file.size,
-        });
       }
 
       if (!audioUrl) {
         return res.status(400).json({ message: "Audio nao enviado" });
       }
 
-      const takeInput = insertTakeSchema.parse({
+      const take = await storage.createTake({
         sessionId,
-        characterId: body.characterId,
-        voiceActorId: body.voiceActorId,
-        lineIndex: body.lineIndex,
+        characterId,
+        voiceActorId,
+        lineIndex: Number(lineIndex),
         audioUrl,
-        durationSeconds: body.durationSeconds ?? 0,
-        qualityScore: body.qualityScore ?? null,
-      });
-      const take = await storage.createTake(takeInput);
-      logger.info("[Take Upload] DB row created", {
-        takeId: take.id,
-        sessionId,
-        lineIndex: take.lineIndex,
-        voiceActorId: take.voiceActorId,
-        durationSeconds: take.durationSeconds,
+        durationSeconds: Number(durationSeconds) || 0,
+        qualityScore: qualityScore ? Number(qualityScore) : null,
       });
 
-      if (req.file && storageProvider === "supabase" && isSupabaseConfigured()) {
-        try {
-          const status = await checkSupabaseConnection(false);
-          if (!status.ok) throw new Error(status.reason || "Supabase indisponivel");
-          const timecodeToken =
-            normalizeTimecodeToken(body.timecode || "") !== "000000000"
-              ? normalizeTimecodeToken(body.timecode || "")
-              : secondsToTimecodeToken(body.startTimeSeconds || 0);
-
-          const studioId = String((sessionCheck as any).studioId || "");
-          const productionId = String((sessionCheck as any).productionId || "");
-
-          const [[studioRow], [productionRow], [characterRow], [actorRow]] = await Promise.all([
-            studioId
-              ? db.select({ name: studios.name }).from(studios).where(eq(studios.id, studioId))
-              : Promise.resolve([]),
-            productionId
-              ? db.select({ name: productions.name }).from(productions).where(eq(productions.id, productionId))
-              : Promise.resolve([]),
-            db.select({ name: characters.name }).from(characters).where(eq(characters.id, String(body.characterId))),
-            db.select({ artistName: users.artistName, displayName: users.displayName, fullName: users.fullName, firstName: users.firstName, lastName: users.lastName, email: users.email })
-              .from(users)
-              .where(eq(users.id, String(body.voiceActorId))),
-          ]);
-
-          const studioName = normalizeSegment(studioRow?.name || "");
-          const productionName = normalizeSegment(productionRow?.name || "");
-          const actorNameRaw =
-            actorRow?.artistName ||
-            actorRow?.displayName ||
-            actorRow?.fullName ||
-            `${actorRow?.firstName || ""} ${actorRow?.lastName || ""}`.trim() ||
-            actorRow?.email ||
-            "";
-          const actorFolder = normalizeSegment(actorNameRaw);
-          const characterFolder = normalizeSegment(characterRow?.name || "");
-
-          const actorToken = normalizeTokenUpper(actorNameRaw);
-          const characterToken = normalizeTokenUpper(characterRow?.name || "");
-          const filename = `${characterToken}_${actorToken}_${timecodeToken}.wav`;
-
-          const baseFolder = normalizeSegment(String(takesPath || "uploads"));
-          const pathSegments =
-            String(supabaseBucket || "").trim().toLowerCase() === baseFolder
-              ? [studioName, productionName, actorFolder, characterFolder, filename]
-              : [baseFolder, studioName, productionName, actorFolder, characterFolder, filename];
-          const objectPath = pathSegments.filter(Boolean).join("/");
-          const publicUrl = await uploadToSupabaseStorage({
-            bucket: supabaseBucket,
-            path: objectPath,
-            buffer: req.file.buffer,
-            contentType,
-          });
-          await storage.updateTakeAudioUrl(take.id, publicUrl);
-          (take as any).audioUrl = publicUrl;
-          logger.info("[Take Upload] Supabase sync complete", {
-            takeId: take.id,
-            objectPath,
-            bucket: supabaseBucket,
-          });
-        } catch (e: any) {
-          logger.error("[Take Upload] Supabase upload failed", { takeId: take.id, message: e?.message });
-        }
-      }
-
-      const [voiceActorMeta, characterMeta, takeCountMeta] = await Promise.all([
-        db.select({
-          displayName: users.displayName,
-          artistName: users.artistName,
-          fullName: users.fullName,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          email: users.email,
-        }).from(users).where(eq(users.id, take.voiceActorId)).limit(1),
-        db.select({ name: characters.name }).from(characters).where(eq(characters.id, take.characterId)).limit(1),
-        db.select({ count: db.$count(takes) })
-          .from(takes)
-          .where(and(eq(takes.sessionId, sessionId), eq(takes.lineIndex, take.lineIndex))),
-      ]);
-
-      const voiceActorName =
-        voiceActorMeta[0]?.artistName ||
-        voiceActorMeta[0]?.displayName ||
-        voiceActorMeta[0]?.fullName ||
-        `${voiceActorMeta[0]?.firstName || ""} ${voiceActorMeta[0]?.lastName || ""}`.trim() ||
-        voiceActorMeta[0]?.email ||
-        "Dublador";
-      const characterName = String(characterMeta[0]?.name || "Personagem");
-      const takeNumber = Number(takeCountMeta[0]?.count || 1);
-
-      const participants = await storage.getSessionParticipants(sessionId);
-      const privilegedParticipantIds = Array.from(
-        new Set(
-          participants
-            .filter((p) => isTakeNotificationReceiverRole(p.role))
-            .map((p) => String(p.userId || ""))
-            .filter(Boolean),
-        ),
-      );
-      const platformOwners = await db.select({ id: users.id }).from(users).where(eq(users.role, "platform_owner"));
-      const targetUserIds = Array.from(
-        new Set([
-          ...privilegedParticipantIds,
-          ...platformOwners.map((u) => String(u.id || "")).filter(Boolean),
-        ]),
-      );
-
-      await Promise.all(
-        targetUserIds.map((targetUserId) =>
-          storage.createNotification({
-            userId: targetUserId,
-            type: "take_completed",
-            title: "Novo take finalizado",
-            message: `${voiceActorName} finalizou o take ${takeNumber} na linha ${take.lineIndex + 1}`,
-            relatedId: take.id,
-            isRead: false,
-          }),
-        ),
-      );
-
-      enqueueTakeCompletedNotification(sessionId, {
-        id: String(take.id),
-        sessionId,
-        lineIndex: Number(take.lineIndex || 0),
-        durationSeconds: Number(take.durationSeconds || 0),
-        audioUrl: String((take as any).audioUrl || ""),
-        createdAt: new Date((take as any).createdAt || Date.now()).toISOString(),
-        voiceActorId: String(take.voiceActorId),
-        voiceActorName: String(voiceActorName),
-        characterName,
-        takeNumber,
-      });
-
-      logger.info("[Take Upload] Completed", { takeId: take.id, sessionId, notifiedUsers: targetUserIds.length });
       res.status(201).json(take);
     } catch (err: any) {
       logger.error("[Take Upload] Create error", { message: err?.message });
@@ -1121,83 +593,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const take = takeList[0];
       const user = (req as any).user!;
       if (user.role !== "platform_owner") {
-        const isOwner = String(take.voiceActorId || "") === String(user.id || "");
-        if (!isOwner) {
-          const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
-          if (!roles.includes("studio_admin")) {
-            return res.status(403).json({ message: "Acesso negado" });
-          }
+        const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
+        if (!roles.includes("studio_admin")) {
+          return res.status(403).json({ message: "Acesso negado" });
         }
       }
-      const filename = filenameFromAudioUrl(take.audioUrl, "take.wav").replace(/[^a-zA-Z0-9_.\-]/g, "_");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
       const filePath = safeAudioPath(take.audioUrl);
-      if (filePath && fs.existsSync(filePath)) {
-        res.setHeader("Content-Type", "audio/wav");
-        fs.createReadStream(filePath).pipe(res);
-        return;
-      }
-
-      if (isHttpUrl(take.audioUrl)) {
-        const upstream = await fetchAudioResponse(take.audioUrl);
-        const contentType = upstream.headers.get("content-type") || "application/octet-stream";
-        res.setHeader("Content-Type", contentType);
-        const stream = toNodeReadable(upstream.body);
-        if (!stream) return res.status(500).json({ message: "Falha ao obter stream" });
-        stream.pipe(res);
-        return;
-      }
-
-      return res.status(404).json({ message: "Arquivo nao encontrado" });
+      if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ message: "Arquivo nao encontrado" });
+      const filename = path.basename(take.audioUrl);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "audio/wav");
+      fs.createReadStream(filePath).pipe(res);
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Erro ao baixar take" });
-    }
-  });
-
-  app.get("/api/takes/:id/stream", requireAuth, async (req, res) => {
-    try {
-      const takeList = await storage.getTakesByIds([req.params.id]);
-      if (takeList.length === 0) return res.status(404).json({ message: "Take nao encontrado" });
-      const take = takeList[0];
-      const user = (req as any).user!;
-      if (user.role !== "platform_owner") {
-        const isOwner = String(take.voiceActorId || "") === String(user.id || "");
-        if (!isOwner) {
-          const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
-          if (!roles.includes("studio_admin")) {
-            return res.status(403).json({ message: "Acesso negado" });
-          }
-        }
-      }
-
-      const filePath = safeAudioPath(take.audioUrl);
-      if (filePath && fs.existsSync(filePath)) {
-        sendFileWithRange(req, res, filePath, "audio/wav");
-        return;
-      }
-
-      if (isHttpUrl(take.audioUrl)) {
-        const range = String(req.headers.range || "");
-        const upstream = await fetchAudioResponse(take.audioUrl, range);
-        const contentType = upstream.headers.get("content-type") || "application/octet-stream";
-        res.status(upstream.status);
-        res.setHeader("Content-Type", contentType);
-        const contentLength = upstream.headers.get("content-length");
-        if (contentLength) res.setHeader("Content-Length", contentLength);
-        const acceptRanges = upstream.headers.get("accept-ranges");
-        if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
-        const contentRange = upstream.headers.get("content-range");
-        if (contentRange) res.setHeader("Content-Range", contentRange);
-        const stream = toNodeReadable(upstream.body);
-        if (!stream) return res.status(500).json({ message: "Falha ao obter stream" });
-        stream.pipe(res);
-        return;
-      }
-
-      return res.status(404).json({ message: "Arquivo nao encontrado" });
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Erro ao reproduzir take" });
     }
   });
 
@@ -1212,15 +620,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (takeList.length === 0) return res.status(404).json({ message: "Takes nao encontrados" });
       const user = (req as any).user!;
       if (user.role !== "platform_owner") {
-        const studioIds: string[] = [];
-        const seen: Record<string, true> = {};
-        for (const take of takeList as any[]) {
-          const sid = String(take.studioId ?? "");
-          if (!sid) continue;
-          if (seen[sid]) continue;
-          seen[sid] = true;
-          studioIds.push(sid);
-        }
+        const studioIds = [...new Set(takeList.map((t: any) => t.studioId))];
         for (const sid of studioIds) {
           const roles = await storage.getUserRolesInStudio(user.id, sid as string);
           if (!roles.includes("studio_admin")) {
@@ -1235,21 +635,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       archive.pipe(res);
       for (const take of takeList) {
         const filePath = safeAudioPath(take.audioUrl);
-        const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
-        if (filePath && fs.existsSync(filePath)) {
-          archive.file(filePath, { name: filename });
-          continue;
-        }
-        if (isHttpUrl(take.audioUrl)) {
-          try {
-            const upstream = await fetchAudioResponse(take.audioUrl);
-            const stream = toNodeReadable(upstream.body);
-            if (!stream) throw new Error("Empty body");
-            archive.append(stream, { name: filename });
-          } catch (e: any) {
-            logger.warn("[Takes Bulk Download] Skip remote file", { takeId: take.id, message: e?.message });
-          }
-        }
+        if (!filePath || !fs.existsSync(filePath)) continue;
+        const filename = path.basename(take.audioUrl);
+        archive.file(filePath, { name: filename });
       }
       await archive.finalize();
     } catch (err: any) {
@@ -1277,21 +665,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       archive.pipe(res);
       for (const take of takeList) {
         const filePath = safeAudioPath(take.audioUrl);
-        const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
-        if (filePath && fs.existsSync(filePath)) {
-          archive.file(filePath, { name: filename });
-          continue;
-        }
-        if (isHttpUrl(take.audioUrl)) {
-          try {
-            const upstream = await fetchAudioResponse(take.audioUrl);
-            const stream = toNodeReadable(upstream.body);
-            if (!stream) throw new Error("Empty body");
-            archive.append(stream, { name: filename });
-          } catch (e: any) {
-            logger.warn("[Session Download] Skip remote file", { takeId: take.id, message: e?.message });
-          }
-        }
+        if (!filePath || !fs.existsSync(filePath)) continue;
+        const filename = path.basename(take.audioUrl);
+        archive.file(filePath, { name: filename });
       }
       await archive.finalize();
     } catch (err: any) {
@@ -1319,22 +695,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       archive.pipe(res);
       for (const take of takeList) {
         const filePath = safeAudioPath(take.audioUrl);
-        const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
+        if (!filePath || !fs.existsSync(filePath)) continue;
+        const filename = path.basename(take.audioUrl);
         const sessionFolder = (take.sessionTitle || "Sessao").replace(/[^a-zA-Z0-9_\-]/g, "_");
-        if (filePath && fs.existsSync(filePath)) {
-          archive.file(filePath, { name: `${sessionFolder}/${filename}` });
-          continue;
-        }
-        if (isHttpUrl(take.audioUrl)) {
-          try {
-            const upstream = await fetchAudioResponse(take.audioUrl);
-            const stream = toNodeReadable(upstream.body);
-            if (!stream) throw new Error("Empty body");
-            archive.append(stream, { name: `${sessionFolder}/${filename}` });
-          } catch (e: any) {
-            logger.warn("[Production Download] Skip remote file", { takeId: take.id, message: e?.message });
-          }
-        }
+        archive.file(filePath, { name: `${sessionFolder}/${filename}` });
       }
       await archive.finalize();
     } catch (err: any) {
@@ -1695,7 +1059,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // PLATFORM SETTINGS
   app.get("/api/admin/settings", requireAuth, requireAdmin, async (req, res) => {
     const settings = await storage.getAllSettings();
-    delete (settings as any).SUPABASE_SERVICE_ROLE_KEY;
     res.status(200).json(settings);
   });
 
@@ -1703,80 +1066,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { key, value } = z.object({ key: z.string(), value: z.string() }).parse(req.body);
       await storage.upsertSetting(key, value);
-      if (key === "SUPABASE_URL") configureSupabase({ url: value });
-      if (key === "SUPABASE_SERVICE_ROLE_KEY") configureSupabase({ serviceRoleKey: value });
       await logAdminAction(req, "UPDATE_SETTING", `Atualizou configuracao ${key}`);
       res.status(200).json({ ok: true });
     } catch (err) {
       res.status(400).json({ message: "Dados invalidos" });
     }
-  });
-
-  app.get("/api/admin/storage/status", requireAuth, requireAdmin, async (_req, res) => {
-    const status = await checkSupabaseConnection(true);
-    const settings = await storage.getAllSettings();
-    res.status(200).json({
-      supabaseConfigured: isSupabaseConfigured(),
-      supabaseOk: status.ok,
-      supabaseReason: status.reason || null,
-      supabaseBucket: settings.SUPABASE_BUCKET || "takes",
-    });
-  });
-
-  app.post("/api/admin/storage/supabase/smoke", requireAuth, requireAdmin, async (_req, res) => {
-    const status = await checkSupabaseConnection(true);
-    if (!isSupabaseConfigured() || !status.ok) {
-      return res.status(400).json({ message: status.reason || "Supabase indisponivel" });
-    }
-    const settings = await storage.getAllSettings();
-    const bucket = settings.SUPABASE_BUCKET || "takes";
-    const path = `__smoke/${Date.now()}_${randomUUID()}.txt`;
-    const marker = `supabase-smoke-${randomUUID()}`;
-    const publicUrl = await uploadToSupabaseStorage({
-      bucket,
-      path,
-      buffer: Buffer.from(marker, "utf8"),
-      contentType: "text/plain",
-    });
-    const downloaded = await downloadFromSupabaseStorageUrl(publicUrl);
-    const text = await downloaded.text().catch(() => "");
-    const parsed = parseSupabaseStorageUrl(publicUrl);
-    if (parsed) {
-      try {
-        await deleteFromSupabaseStorage(parsed);
-      } catch (e: any) {
-        logger.warn("[Supabase Smoke] Cleanup failed", { bucket: parsed.bucket, path: parsed.path, message: e?.message });
-      }
-    }
-    if (!text.includes(marker)) {
-      return res.status(500).json({ message: "Falha ao validar leitura no Supabase" });
-    }
-    return res.status(200).json({ ok: true, bucket });
-  });
-
-  app.get("/api/storage/options", requireAuth, async (_req, res) => {
-    const settings = await storage.getAllSettings();
-    const status = await checkSupabaseConnection(false);
-    let paths: string[] = [];
-    try {
-      const raw = settings.TAKES_SAVE_PATHS || "[]";
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) paths = parsed.map((v) => String(v)).filter(Boolean);
-    } catch {}
-    if (!paths.length) paths = ["uploads"];
-
-    const defaultProvider = "supabase";
-    const defaultPath = String(settings.DEFAULT_TAKES_PATH || paths[0] || "uploads");
-
-    res.status(200).json({
-      defaultProvider,
-      defaultPath,
-      paths,
-      supabaseConfigured: isSupabaseConfigured(),
-      supabaseOk: status.ok,
-      supabaseReason: status.reason || null,
-      supabaseBucket: settings.SUPABASE_BUCKET || "takes",
-    });
   });
 
   app.post("/api/create-room", requireAuth, async (req, res) => {
