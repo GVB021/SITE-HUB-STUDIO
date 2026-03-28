@@ -1,1 +1,0 @@
-import{d as i}from"./index-dMOXeiOy.js";import{a as t}from"./routes-CTWqUUK3.js";import{a as o}from"./auth-fetch-BqBRWm_N.js";function r(){return i({queryKey:[t.studios.list.path],queryFn:async()=>{const s=await o(t.studios.list.path);return t.studios.list.responses[200].parse(s)}})}function p(s){const{data:a}=r();return a?.find(u=>u.id===s)}export{p as a,r as u};
