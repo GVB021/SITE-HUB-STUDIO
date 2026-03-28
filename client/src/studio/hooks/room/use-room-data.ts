@@ -88,7 +88,22 @@ export function useRecordingsList(sessionId: string, params: RecordingsQueryPara
         console.debug("[Room][Recordings] takes carregados", { sessionId, total: normalized.total });
         return normalized;
       } catch (error) {
-        console.error("[Room][Recordings] falha ao carregar takes", { sessionId, error });
+        // Log detailed error information
+        const errorDetails = {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          params: {
+            page,
+            pageSize,
+            sortBy: params.sortBy,
+            sortDir: params.sortDir,
+            search: params.search,
+            userId: params.userId,
+          }
+        };
+        console.error("[Room][Recordings] falha ao carregar takes", errorDetails);
+        
         // Return empty data instead of throwing to prevent repeated errors
         return {
           items: [],

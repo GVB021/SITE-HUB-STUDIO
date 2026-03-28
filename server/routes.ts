@@ -4,15 +4,8 @@ declare module "express" {
   interface Request {
     params: Record<string, string>;
   }
+}
 
-async function resolveRecordingAccess(user: any, sessionId: string, studioId: string) {
-  const canManage = await canManageSessionTakes(user, sessionId, studioId);
-  return {
-    canManage,
-    restrictedVoiceActorId: canManage ? undefined : String(user.id || ""),
-  };
-}
-}
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
@@ -470,6 +463,14 @@ async function canManageSessionTakes(user: any, sessionId: string, studioId: str
   if (!self) return false;
   const participantRole = normalizeStudioRole(self.role);
   return participantRole === "director" || participantRole === "admin" || participantRole === "owner";
+}
+
+async function resolveRecordingAccess(user: any, sessionId: string, studioId: string) {
+  const canManage = await canManageSessionTakes(user, sessionId, studioId);
+  return {
+    canManage,
+    restrictedVoiceActorId: canManage ? undefined : String(user.id || ""),
+  };
 }
 
 async function canAccessTake(user: any, take: any, sessionId: string, studioId: string): Promise<boolean> {
@@ -1617,6 +1618,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       logger.info("[Recordings] Fetch requested", {
         sessionId: req.params.sessionId,
         userId: user.id,
+        queryParams: req.query,
       });
 
       const query = z.object({
@@ -1624,6 +1626,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         pageSize: z.coerce.number().int().min(1).max(20).optional(),
         search: z.string().max(120).optional(),
         userId: z.string().max(120).optional(),
+        sortBy: z.enum(['createdAt', 'durationSeconds', 'lineIndex', 'characterName']).optional(),
+        sortDir: z.enum(['asc', 'desc']).optional(),
       }).parse(req.query);
       const page = query.page || 1;
       const pageSize = query.pageSize || 10;

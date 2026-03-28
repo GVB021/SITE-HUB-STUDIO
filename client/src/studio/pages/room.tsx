@@ -50,6 +50,11 @@ import { useStudioRole } from "@studio/hooks/use-studio-role";
 import SessionBlockedScreen from "@studio/pages/admin/components/SessionBlockedScreen";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
+import { useRoomLogger } from "@studio/hooks/useRoomLogger";
+import { useRoomPermissions } from "@studio/hooks/useRoomPermissions";
+import { useWebSocketRoom } from "@studio/hooks/useWebSocketRoom";
+import { TIMING, THRESHOLDS, VALIDATION } from "@studio/constants/timing";
+import { validateMicrophoneBeforeRecording } from "@studio/lib/audio/microphoneValidation";
 import {
   requestMicrophone,
   releaseMicrophone,
@@ -174,37 +179,25 @@ export interface RecordingProfile {
 }
 
 export default function RecordingRoom() {
-  console.log("[RecordingRoom] Componente iniciado - v1.0");
-  console.log("[RecordingRoom] Environment:", { NODE_ENV: process.env.NODE_ENV });
-  
-  try {
-    const params = useParams();
-    console.log("[RecordingRoom] useParams:", params);
-  } catch (e) {
-    console.error("[RecordingRoom] Error getting useParams:", e);
-  }
-
   const { studioId, sessionId } = useParams<{ studioId: string; sessionId: string }>();
-  console.log("[RecordingRoom] Params extraídos:", { studioId, sessionId });
-  
-  try {
-    const { role: studioRole, isDirector } = useStudioRole(studioId || "");
-    console.log("[RecordingRoom] StudioRole:", { studioRole, isDirector });
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useStudioRole:", e);
-  }
-  
   const { role: studioRole, isDirector } = useStudioRole(studioId || "");
-  
-  try {
-    const { user } = useAuth();
-    console.log("[RecordingRoom] User:", user ? { id: user.id, role: user.role } : null);
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useAuth:", e);
-  }
-  
   const { user } = useAuth();
   const { toast } = useToast();
+  
+  const logger = useRoomLogger({
+    sessionId: sessionId || "",
+    userId: user?.id || "",
+    studioId: studioId || ""
+  });
+  
+  logger.info("RecordingRoom initialized", {
+    sessionId,
+    studioId,
+    userId: user?.id,
+    userRole: user?.role,
+    studioRole,
+    isDirector
+  });
   const [, setLocation] = useLocation();
   const [hardwareDialogOpen, setHardwareDialogOpen] = useState(false);
   
@@ -250,47 +243,17 @@ export default function RecordingRoom() {
   const [isWaitingReview, setIsWaitingReview] = useState(false);
 
   // Data fetching hooks
-  console.log("[RecordingRoom] Iniciando hooks de dados...");
-  
-  try {
-    console.log("[RecordingRoom] Chamando useSessionData...");
-    const { data: session, isLoading: sessionLoading, error: sessionError } = useSessionData(studioId || "", sessionId || "");
-    console.log("[RecordingRoom] useSessionData result:", { session: !!session, sessionLoading, sessionError });
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useSessionData:", e);
-  }
-  
   const { data: session, isLoading: sessionLoading, error: sessionError } = useSessionData(studioId || "", sessionId || "");
-  
-  try {
-    console.log("[RecordingRoom] Chamando useProductionScript...");
-    const { data: production, isLoading: productionLoading, error: productionError } = useProductionScript(session?.productionId || "");
-    console.log("[RecordingRoom] useProductionScript result:", { production: !!production, productionLoading, productionError });
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useProductionScript:", e);
-  }
-  
   const { data: production, isLoading: productionLoading, error: productionError } = useProductionScript(session?.productionId || "");
-  
-  try {
-    console.log("[RecordingRoom] Chamando useCharactersList...");
-    const { data: charactersList, isLoading: charactersLoading } = useCharactersList(session?.productionId || "");
-    console.log("[RecordingRoom] useCharactersList result:", { charactersList: !!charactersList, charactersLoading });
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useCharactersList:", e);
-  }
-  
   const { data: charactersList, isLoading: charactersLoading } = useCharactersList(session?.productionId || "");
-  
-  try {
-    console.log("[RecordingRoom] Chamando useTakesList...");
-    const { data: takes, isLoading: takesLoading } = useTakesList(sessionId || "");
-    console.log("[RecordingRoom] useTakesList result:", { takes: !!takes, takesLoading });
-  } catch (e) {
-    console.error("[RecordingRoom] Error em useTakesList:", e);
-  }
-  
   const { data: takes, isLoading: takesLoading } = useTakesList(sessionId || "");
+  
+  if (sessionError) {
+    logger.error("Failed to load session data", { error: sessionError });
+  }
+  if (productionError) {
+    logger.error("Failed to load production data", { error: productionError });
+  }
   
   // useRecordingsList movido para abaixo com parâmetros corretos
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -345,8 +308,9 @@ export default function RecordingRoom() {
       try {
         const parsed = JSON.parse(saved);
         setRecordingProfile({ ...parsed, actorName: "", voiceActorName: "" });
+        logger.debug("Loaded saved recording profile", { characterId: parsed.characterId });
       } catch (e) {
-        console.warn("Failed to load saved recording profile");
+        logger.warn("Failed to load saved recording profile", { error: e });
       }
     }
   }, [sessionId]);
@@ -451,7 +415,7 @@ export default function RecordingRoom() {
   const isDubberView = isDubber;
   const isDirectorView = !isDubberView;
   
-  console.log("[Room] Permissions:", { 
+  logger.debug("Permissions check", { 
     studioRole, 
     myId: user?.id, 
     hasTextControl, 
@@ -469,13 +433,6 @@ export default function RecordingRoom() {
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
-
-  // WebSocket ref
-  const wsRef = useRef<WebSocket | null>(null);
-  const wsIntentionalClose = useRef(false);
-  const wsReconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wsReconnectAttempts = useRef(0);
-  const [wsConnected, setWsConnected] = useState(false);
 
   // Session access verification
   const checkSessionAccess = useCallback(async () => {
@@ -501,7 +458,7 @@ export default function RecordingRoom() {
         setSessionAccessStatus({ canAccess: true });
       }
     } catch (err) {
-      console.error('Erro ao verificar acesso à sessão:', err);
+      logger.error('Failed to verify session access', { error: err });
       // Se der erro, permitir acesso (fallback)
       setSessionAccessStatus({ canAccess: true });
     }
@@ -530,34 +487,6 @@ export default function RecordingRoom() {
       setMicReady(false);
     };
   }, []);
-  const emitVideoEvent = useCallback((type: string, data: any) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: `video:${type}`, ...data }));
-    }
-  }, []);
-
-  const emitTextControlEvent = useCallback((type: string, data: any) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type, ...data }));
-    }
-  }, [presenceUsers]);
-
-  const handleCharacterChange = useCallback((character: any) => {
-    const updated = { 
-      ...recordingProfile, 
-      characterId: character.id, 
-      characterName: character.name,
-      // Preserve whatever actorName the user manually typed — never inject user account data
-      actorName: recordingProfile?.actorName || "",
-      voiceActorId: user?.id || '',
-      voiceActorName: recordingProfile?.voiceActorName || "",
-    };
-    setRecordingProfile(updated);
-    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(updated));
-    // Sincronizar via WebSocket
-    emitVideoEvent("character-selected", { characterId: character.id, userId: user?.id });
-    logAudioStep("character-selected", { characterId: character.id, characterName: character.name });
-  }, [recordingProfile, sessionId, user?.id, emitVideoEvent, logAudioStep]);
 
   const applyScriptLinePatch = useCallback((lineIndex: number, patch: ScriptLineOverride) => {
     if (!Number.isInteger(lineIndex) || lineIndex < 0) return;
@@ -589,22 +518,11 @@ export default function RecordingRoom() {
     });
   }, []);
 
-  // WebSocket connection
-  useEffect(() => {
-    if (!sessionId || !studioId) return;
-    wsIntentionalClose.current = false;
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/ws/video-sync?studioId=${encodeURIComponent(studioId)}&sessionId=${encodeURIComponent(sessionId)}`);
-    wsRef.current = ws;
-
-    const handleWsMessage = (e: MessageEvent) => {
-        try {
-          const msg = JSON.parse(e.data);
-          console.log("[Room] WS message received:", msg.type, msg);
+  // WebSocket message handler
+  const handleWebSocketMessage = useCallback((msg: any) => {
+    logger.debug("WS message received", { type: msg.type, data: msg });
           if (msg.type === "text-control:state" || msg.type === "text-control:set-controllers") {
-            console.log("[Room] Text control update before state change:", { currentControllers: Array.from(textControllerUserIds), myId: user?.id });
+            logger.debug("Text control update before state change", { currentControllers: Array.from(textControllerUserIds), myId: user?.id });
           }
           if (msg.type === "video:sync") {
           const video = videoRef.current;
@@ -624,13 +542,13 @@ export default function RecordingRoom() {
               }
             }
             if (video.paused) {
-              video.play().catch((e) => console.error("[WS] Erro ao dar play:", e));
+              video.play().catch((e) => logger.error("Failed to play video from WS", { error: e }));
             } else {
             }
             // Enviar ACK de confirmação
             emitVideoEvent("ack", { command: "play", userId: user?.id });
           } else {
-            console.warn("[WS] Elemento de vídeo não encontrado!");
+            logger.warn("Video element not found");
           }
         } else if (msg.type === "video:pause") {
           const video = videoRef.current;
@@ -677,7 +595,7 @@ export default function RecordingRoom() {
                 playCountdownBeep(audioContext, { volume: 0.15 });
               }
             } catch (error) {
-              console.warn("[Room] Failed to create AudioContext for countdown beep:", error);
+              logger.warn("Failed to create AudioContext for countdown beep", { error });
             }
           } else if (msg.count === 0) {
             try {
@@ -686,12 +604,12 @@ export default function RecordingRoom() {
                 playCountdownBeep(audioContext, { frequency: 660, duration: 0.18, volume: 0.10, type: "triangle" });
               }
             } catch (error) {
-              console.warn("[Room] Failed to create AudioContext for countdown final beep:", error);
+              logger.warn("Failed to create AudioContext for countdown final beep", { error });
             }
           }
         } else if (msg.type === "video:loop-preparing") {
           setLoopPreparing(true);
-          const delayMs = Number(msg.delayMs || 3000);
+          const delayMs = Number(msg.delayMs || TIMING.LOOP_PREPARATION_MS);
           window.setTimeout(() => setLoopPreparing(false), delayMs);
         } else if (msg.type === "video:loop-silence-window") {
           setLoopSilenceActive(true);
@@ -722,11 +640,11 @@ export default function RecordingRoom() {
           }
         } else if (msg.type === "text-control:set-controllers" || msg.type === "text-control:state") {
           const ids = Array.isArray(msg.targetUserIds) ? msg.targetUserIds : msg.controllerUserIds;
-          console.log("[Room] text-control state received:", { type: msg.type, ids, myId: user?.id });
+          logger.debug("Text control state received", { type: msg.type, ids, myId: user?.id });
           const nextSet = new Set(Array.from(new Set(ids || []))) as Set<string>;
           setTextControllerUserIds(nextSet);
           // Log immediately with the new state
-          console.log("[Room] After text-control update:", { 
+          logger.debug("After text-control update", { 
             controllers: Array.from(nextSet), 
             myId: user?.id,
             hasPermission: nextSet.has(String(user?.id ?? "")),
@@ -784,84 +702,46 @@ export default function RecordingRoom() {
             toast({ title: "Um take seu foi excluído pelo diretor", variant: "destructive" });
           }
         }
-      } catch (err) {
-        console.error("Failed to parse WS message", err);
-      }
+  }, [logger, textControllerUserIds, user?.id, setCountdownValue, setLockedLines, setLiveDrafts, setLoopPreparing, setLoopSilenceActive, setCustomLoop, setIsLooping, applyScriptLinePatch, pushEditHistory, setTextControllerUserIds, studioRole, setPresenceUsers, isDirector, setReviewingTake, setDirectorReviewModalOpen, toast, lastUploadedTakeId, setIsWaitingReview, setPendingTake, setRecordingStatus, reviewingTake]);
+
+  // WebSocket connection using hook
+  const { isConnected: wsConnected, send: wsSend } = useWebSocketRoom({
+    sessionId: sessionId || "",
+    studioId: studioId || "",
+    userId: user?.id || "",
+    onMessage: handleWebSocketMessage,
+    enabled: Boolean(sessionId && studioId),
+  });
+
+  const emitVideoEvent = useCallback((type: string, data: any) => {
+    wsSend({ type: `video:${type}`, ...data });
+  }, [wsSend]);
+
+  const emitTextControlEvent = useCallback((type: string, data: any) => {
+    wsSend({ type, ...data });
+  }, [wsSend]);
+
+  const handleCharacterChange = useCallback((character: any) => {
+    const updated = { 
+      ...recordingProfile, 
+      characterId: character.id, 
+      characterName: character.name,
+      actorName: recordingProfile?.actorName || "",
+      voiceActorId: user?.id || '',
+      voiceActorName: recordingProfile?.voiceActorName || "",
     };
+    setRecordingProfile(updated);
+    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(updated));
+    emitVideoEvent("character-selected", { characterId: character.id, userId: user?.id });
+    logAudioStep("character-selected", { characterId: character.id, characterName: character.name });
+  }, [recordingProfile, sessionId, user?.id, emitVideoEvent, logAudioStep]);
 
-    const handleWsOpen = () => {
-      console.log("[Room] WebSocket connected");
-      setWsConnected(true);
-      wsReconnectAttempts.current = 0;
-    };
-
-    const handleWsError = (err: Event) => {
-      console.error("[Room] WebSocket error", err);
-    };
-
-    const setupHandlers = (wsTarget: WebSocket) => {
-      wsTarget.onopen = handleWsOpen;
-      wsTarget.onmessage = handleWsMessage;
-      wsTarget.onerror = handleWsError;
-      wsTarget.onclose = handleWsClose;
-    };
-
-    function handleWsClose() {
-      setWsConnected(false);
-      console.log("[Room] WebSocket disconnected");
-      if (wsIntentionalClose.current) return;
-      
-      const attempt = wsReconnectAttempts.current;
-      const MAX_RECONNECT_ATTEMPTS = 10;
-      
-      // Verificar se atingiu o limite de tentativas
-      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
-        console.error("[Room] Máximo de tentativas de reconexão atingido");
-        toast({
-          title: "Conexão perdida",
-          description: "Não foi possível reconectar ao servidor. Recarregue a página.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      // Auto-reconnect with exponential backoff + jitter
-      const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30000);
-      const jitter = Math.random() * 1000; // Adicionar jitter para evitar thundering herd
-      const delay = baseDelay + jitter;
-      
-      wsReconnectAttempts.current = attempt + 1;
-      console.log(`[Room] Reconectando em ${Math.round(delay)}ms (tentativa ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
-      
-      // Mostrar toast apenas nas primeiras tentativas
-      if (attempt === 0) {
-        toast({
-          title: "Reconectando...",
-          description: "Tentando restabelecer conexão com o servidor.",
-        });
-      }
-      
-      wsReconnectTimeout.current = setTimeout(() => {
-        if (!wsIntentionalClose.current && sessionId && studioId) {
-          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-          const host = window.location.host;
-          const newWs = new WebSocket(`${protocol}//${host}/ws/video-sync?studioId=${encodeURIComponent(studioId)}&sessionId=${encodeURIComponent(sessionId)}`);
-          wsRef.current = newWs;
-          setupHandlers(newWs);
-        }
-      }, delay);
-    }
-
-    setupHandlers(ws);
-
+  // Cleanup loop selection on unmount
+  useEffect(() => {
     return () => {
-      wsIntentionalClose.current = true;
-      if (wsReconnectTimeout.current) clearTimeout(wsReconnectTimeout.current);
-      ws.close();
-      // M4: Clear loop selection state on intentional disconnect
       setLoopSelectionMode("idle");
     };
-  }, [sessionId, studioId, micState, user?.id, toast, applyScriptLinePatch, pushEditHistory, lastUploadedTakeId]);
+  }, []);
 
   const baseScriptLines: ScriptLine[] = useMemo(() => {
     if (!production?.scriptJson) return [];
@@ -1829,9 +1709,7 @@ export default function RecordingRoom() {
     }
     
     const currentLineTime = scriptLines[currentLine]?.start || 0;
-    // 3-second preroll: seek 3s before the line
-    const prerollSeconds = 3;
-    const prerollStart = Math.max(0, currentLineTime - prerollSeconds);
+    const prerollStart = Math.max(0, currentLineTime - THRESHOLDS.VIDEO_PREROLL_S);
     
     video.currentTime = prerollStart;
     emitVideoEvent("seek", { currentTime: prerollStart });
@@ -1842,7 +1720,7 @@ export default function RecordingRoom() {
     setRecordingStatus("countdown");
     
     video.play().catch((error) => {
-      console.error("Erro ao reproduzir vídeo", error);
+      logger.error("Failed to play video", { error });
       toast({ title: "Erro na reprodução", description: "Não foi possível reproduzir o vídeo.", variant: "destructive" });
     });
     
@@ -1864,11 +1742,11 @@ export default function RecordingRoom() {
         if (activeMicState) {
           startCapture(activeMicState).then(() => setRecordingStatus("recording"));
         } else {
-          console.warn("Iniciando gravação sem micState - pode não funcionar");
+          logger.warn("Starting recording without micState");
           setRecordingStatus("idle");
         }
       }
-    }, 1000);
+    }, TIMING.COUNTDOWN_BEEP_INTERVAL_MS);
   }, [recordingStatus, micState, pendingTake, initializeRecordingMicrophone, emitVideoEvent, logAudioStep, user?.id, recordingProfile, currentLine, scriptLines, mySessionRole, toast]);
 
   const handleDirectorApprove = useCallback(async () => {
