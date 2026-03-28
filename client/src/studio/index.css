@@ -6,232 +6,110 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-    /* 🎨 NOVA PALETA HARMONIZADA - Dark Light */
-    --background: 220 13% 18%;           /* Cinza suave (vs zinc-950) */
-    --foreground: 220 20% 95%;           /* Branco suave */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 7%;
 
-    --surface: 220 13% 23%;             /* Cards/panels */
-    --surface-elevated: 220 13% 28%;    /* Hover/active */
-    --surface-subtle: 220 13% 15%;      /* Fundos sutis */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+    --card-border: 0 0% 86%;
 
-    --card: var(--surface);
-    --card-foreground: var(--foreground);
-    --card-border: 220 12% 25%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 7%;
+    --popover-border: 0 0% 86%;
 
-    --popover: var(--surface-elevated);
-    --popover-foreground: var(--foreground);
-    --popover-border: var(--card-border);
-
-    --primary: 221 83% 53%;             /* Mesmo azul do site */
+    --primary: 221 83% 53%;
     --primary-foreground: 0 0% 100%;
-    --primary-border: var(--primary);
-    --primary-soft: 221 83% 63%;        /* Versão mais suave */
+    --primary-border: 217 56% 43%;
 
-    --secondary: var(--surface-subtle);
-    --secondary-foreground: var(--foreground);
-    --secondary-border: var(--card-border);
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 16%;
+    --secondary-border: 0 0% 85%;
 
-    --muted: var(--surface-subtle);
-    --muted-foreground: 220 9% 75%;     /* Cinza médio */
-    --muted-border: var(--card-border);
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 34%;
+    --muted-border: 0 0% 86%;
 
-    --accent: 220 14% 96%;              /* Cinza claro para contrastes */
-    --accent-foreground: var(--foreground);
-    --accent-border: var(--card-border);
-    --accent-subtle: 220 14% 91%;      /* Ainda mais sutil */
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 16%;
+    --accent-border: 0 0% 86%;
 
     --destructive: 0 78% 57%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-border: var(--destructive);
+    --destructive-border: 0 78% 57%;
 
-    --border: 220 12% 25%;
-    --input: var(--border);
-    --ring: var(--primary);
+    --border: 0 0% 86%;
+    --input: 0 0% 86%;
+    --ring: 221 83% 53%;
 
-    /* 🎨 HIERARQUIA DE TEXTO MELHORADA */
-    --text-primary: var(--foreground);
-    --text-secondary: 220 9% 75%;      /* Cinza médio */
-    --text-muted: 220 7% 55%;          /* Cinza escuro */
-    --text-subtle: 220 5% 35%;         /* Muito sutil */
+    --radius: 1rem;
 
-    --radius: 1rem;                    /* Mesmo do site */
-
-    --sidebar-background: var(--surface);
-    --sidebar-foreground: var(--foreground);
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 16%;
     --sidebar-primary: 221 83% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 223 17% 16%;
-    --sidebar-accent-foreground: 220 20% 92%;
-    --sidebar-border: 223 14% 21%;
+    --sidebar-accent: 0 0% 94%;
+    --sidebar-accent-foreground: 0 0% 16%;
+    --sidebar-border: 0 0% 86%;
     --sidebar-ring: 221 83% 53%;
 
-    --glass-bg: rgba(13, 16, 24, 0.72);
-    --glass-bg-hover: rgba(20, 24, 36, 0.84);
-    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-bg: rgba(250, 250, 250, 0.72);
+    --glass-bg-hover: rgba(250, 250, 250, 0.82);
+    --glass-border: rgba(17, 17, 17, 0.1);
   }
 
-}
+  .dark {
+    --background: 224 22% 7%;
+    --foreground: 220 24% 95%;
 
-@layer components {
-  /* 🎨 COMPONENTES HARMONIZADOS */
-  
-  /* Header com gradient suave */
-  .room-header {
-    background: linear-gradient(135deg, 
-      hsl(var(--surface)) 0%, 
-      hsl(var(--surface-subtle)) 100%) !important;
-    border-bottom: 1px solid hsl(var(--border)) !important;
-  }
-  
-  /* Cards com elevation */
-  .room-card {
-    background: hsl(var(--surface)) !important;
-    border: 1px solid hsl(var(--border)) !important;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
-  }
-  
-  .room-card-elevated {
-    background: hsl(var(--surface-elevated)) !important;
-    border: 1px solid hsl(var(--border)) !important;
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1) !important;
-  }
-  
-  /* Botões harmonizados */
-  .room-button-primary {
-    background: hsl(var(--primary)) !important;
-    color: hsl(var(--primary-foreground)) !important;
-    border: 1px solid hsl(var(--primary-border)) !important;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  }
-  
-  .room-button-primary:hover {
-    background: hsl(var(--primary-soft)) !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px hsl(var(--primary) / 0.3) !important;
-  }
-  
-  .room-button-secondary {
-    background: hsl(var(--surface)) !important;
-    color: hsl(var(--text-primary)) !important;
-    border: 1px solid hsl(var(--border)) !important;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  }
-  
-  .room-button-secondary:hover {
-    background: hsl(var(--surface-elevated)) !important;
-    border-color: hsl(var(--primary)) !important;
-  }
-  
-  /* Popups e modals */
-  .room-popup {
-    background: hsl(var(--surface-elevated)) !important;
-    border: 1px solid hsl(var(--border)) !important;
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1) !important;
-    backdrop-filter: blur(16px) !important;
-  }
-  
-  /* Textos com hierarquia */
-  .room-text-primary {
-    color: hsl(var(--text-primary)) !important;
-  }
-  
-  .room-text-secondary {
-    color: hsl(var(--text-secondary)) !important;
-  }
-  
-  .room-text-muted {
-    color: hsl(var(--text-muted)) !important;
-  }
-  
-  .room-text-subtle {
-    color: hsl(var(--text-subtle)) !important;
-  }
-  
-  /* Bordas arredondadas consistentes */
-  .room-rounded {
-    border-radius: var(--radius) !important;
-  }
-  
-  .room-rounded-lg {
-    border-radius: calc(var(--radius) * 1.5) !important;
-  }
-  
-  .room-rounded-full {
-    border-radius: 9999px !important;
-  }
-  
-  .room-rounded-2xl {
-    border-radius: 1rem !important;
-  }
-  
-  .room-rounded-xl {
-    border-radius: 0.75rem !important;
-  }
-  
-  /* Transições suaves */
-  .room-transition {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  }
-  
-  /* Fundos sutis */
-  .room-bg-subtle {
-    background: hsl(var(--surface-subtle)) !important;
-  }
-  
-  .room-bg-surface {
-    background: hsl(var(--surface)) !important;
-  }
-  
-  .room-bg-elevated {
-    background: hsl(var(--surface-elevated)) !important;
-  }
-  
-  /* Controles de vídeo/audio */
-  .room-controls {
-    background: hsl(var(--surface)) !important;
-    border: 1px solid hsl(var(--border)) !important;
-    backdrop-filter: blur(8px) !important;
-  }
-  
-  /* Indicadores de status */
-  .room-status-online {
-    background: hsl(142 76% 36%) !important;
-    box-shadow: 0 0 12px hsl(142 76% 36% / 0.4) !important;
-  }
-  
-  .room-status-recording {
-    background: hsl(0 78% 57%) !important;
-    box-shadow: 0 0 12px hsl(0 78% 57% / 0.4) !important;
-  }
-  
-  /* Gradients para elementos especiais */
-  .room-gradient-primary {
-    background: linear-gradient(135deg, 
-      hsl(var(--primary)) 0%, 
-      hsl(var(--primary-soft)) 100%) !important;
-  }
-  
-  .room-gradient-surface {
-    background: linear-gradient(135deg, 
-      hsl(var(--surface)) 0%, 
-      hsl(var(--surface-subtle)) 100%) !important;
+    --card: 224 20% 10%;
+    --card-foreground: 220 20% 95%;
+    --card-border: 223 16% 20%;
+
+    --popover: 224 20% 10%;
+    --popover-foreground: 220 20% 95%;
+    --popover-border: 223 16% 20%;
+
+    --primary: 214 88% 68%;
+    --primary-foreground: 224 24% 10%;
+    --primary-border: 213 78% 66%;
+
+    --secondary: 223 17% 16%;
+    --secondary-foreground: 220 20% 92%;
+    --secondary-border: 223 14% 21%;
+
+    --muted: 223 17% 16%;
+    --muted-foreground: 219 12% 66%;
+    --muted-border: 223 14% 21%;
+
+    --accent: 223 17% 16%;
+    --accent-foreground: 220 20% 92%;
+    --accent-border: 223 14% 21%;
+
+    --destructive: 0 64% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-border: 0 64% 46%;
+
+    --border: 223 14% 21%;
+    --input: 223 14% 21%;
+    --ring: 213 78% 66%;
+
+    --radius: 0.75rem;
   }
 }
 
 @layer utilities {
   .glass-panel {
-    @apply bg-background/70 backdrop-blur-xl border border-border/60 shadow-sm;
+    @apply bg-background/70 backdrop-blur-xl border border-border/60 shadow-sm dark:bg-white/[0.05] dark:border-white/[0.12];
   }
 
   .glass-card {
-    @apply bg-card/80 backdrop-blur-md border border-border/60 shadow-sm transition-all duration-300 hover:border-primary/25 hover:shadow-md;
+    @apply bg-card/80 backdrop-blur-md border border-border/60 shadow-sm transition-all duration-300 hover:border-primary/25 hover:shadow-md dark:bg-white/[0.04] dark:border-white/[0.12];
   }
 
   .text-glow {
-    text-shadow: 0 0 20px rgba(245, 158, 11, 0.45);
+    text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
   }
 
   .custom-scrollbar::-webkit-scrollbar {
@@ -276,25 +154,6 @@
   animation: pulseGlow 4.8s ease-in-out infinite;
 }
 
-@keyframes rrClickBlink {
-  0% { box-shadow: 0 0 0 rgba(16,185,129,0); }
-  50% { box-shadow: 0 0 16px rgba(16,185,129,0.8), 0 0 32px rgba(16,185,129,0.42); }
-  100% { box-shadow: 0 0 0 rgba(16,185,129,0); }
-}
-
-.recording-room button {
-  transition: box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
-}
-
-.recording-room button:hover {
-  box-shadow: 0 0 12px rgba(30, 58, 138, 0.45), 0 0 24px rgba(30, 58, 138, 0.3);
-  filter: brightness(1.04);
-}
-
-.recording-room button.rr-click-blink {
-  animation: rrClickBlink 300ms ease-out;
-}
-
 @layer base {
   * {
     @apply border-border;
@@ -303,7 +162,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
-    background-image: linear-gradient(140deg, hsl(var(--background)) 0%, hsl(224 21% 9%) 100%);
+    background-image: linear-gradient(140deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%);
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

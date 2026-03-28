@@ -3,6 +3,7 @@ import { useAuth } from "@studio/hooks/use-auth";
 import { Input } from "@studio/components/ui/input";
 import { Loader2, ArrowRight } from "lucide-react";
 import { useLocation } from "wouter";
+import { pt } from "@studio/lib/i18n";
 import { useToast } from "@studio/hooks/use-toast";
 
 export default function SecretariaLogin() {
@@ -33,15 +34,15 @@ export default function SecretariaLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 relative overflow-hidden">
       {/* Different background style for differentiation */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[500px] bg-blue-500/10 blur-[120px] rounded-full" />
       </div>
 
-      <div className="w-full max-w-sm relative page-enter bg-white p-8 rounded-2xl shadow-xl border border-zinc-200">
+      <div className="w-full max-w-sm relative page-enter bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800">
         <div className="text-center mb-10">
-          <div className="mx-auto w-16 h-16 flex items-center justify-center mb-6 bg-blue-50 rounded-2xl">
+          <div className="mx-auto w-16 h-16 flex items-center justify-center mb-6 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
             <img src="/logo.svg" alt="V.HUB" className="w-10 h-10" />
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Secretaria V.HUB</h1>
@@ -59,7 +60,7 @@ export default function SecretariaLogin() {
               placeholder="admin@vhub.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="h-11 bg-zinc-50"
+              className="h-11 bg-slate-50 dark:bg-slate-950/50"
               required
             />
           </div>
@@ -74,7 +75,7 @@ export default function SecretariaLogin() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="h-11 bg-zinc-50"
+              className="h-11 bg-slate-50 dark:bg-slate-950/50"
               required
             />
           </div>
@@ -82,7 +83,7 @@ export default function SecretariaLogin() {
           <button
             type="submit"
             disabled={isLoggingIn}
-            className="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-foreground text-background hover:bg-foreground/90 h-11 px-8 mt-6"
+            className="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-600 text-primary-foreground hover:bg-blue-700 h-11 px-8 mt-6"
           >
             {isLoggingIn ? (
               <Loader2 className="w-4 h-4 animate-spin" />

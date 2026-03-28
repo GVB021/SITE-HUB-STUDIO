@@ -89,13 +89,13 @@ function groupTakes(takes: TakeDetail[]): GroupedData {
   return { studios };
 }
 
-function AudioPlayer({ takeId }: { takeId: string }) {
+function AudioPlayer({ audioUrl, takeId }: { audioUrl: string; takeId: string }) {
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const toggle = useCallback(() => {
     if (!audioRef.current) {
-      audioRef.current = new Audio(`/api/takes/${takeId}/stream`);
+      audioRef.current = new Audio(audioUrl);
       audioRef.current.onended = () => setPlaying(false);
     }
     if (playing) {
@@ -105,7 +105,7 @@ function AudioPlayer({ takeId }: { takeId: string }) {
       audioRef.current.play();
       setPlaying(true);
     }
-  }, [playing, takeId]);
+  }, [playing, audioUrl]);
 
   return (
     <Button
@@ -160,19 +160,19 @@ function TakeRow({
         onCheckedChange={() => onToggle(take.id)}
         data-testid={`checkbox-take-${take.id}`}
       />
-      <AudioPlayer takeId={take.id} />
+      <AudioPlayer audioUrl={take.audioUrl} takeId={take.id} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-mono text-foreground truncate" data-testid={`text-filename-${take.id}`}>
             {filename}
           </span>
           {take.isPreferred && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500/40 text-blue-400 bg-blue-500/10">
-              <Star className="h-2.5 w-2.5 mr-0.5 fill-blue-400" /> Preferido
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400 bg-amber-500/10">
+              <Star className="h-2.5 w-2.5 mr-0.5 fill-amber-400" /> Preferido
             </Badge>
           )}
           {take.aiRecommended && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-zinc-500/40 text-zinc-400 bg-zinc-500/10">
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500/40 text-blue-400 bg-blue-500/10">
               AI
             </Badge>
           )}
@@ -531,10 +531,9 @@ const Takes = memo(function Takes({ studioId }: { studioId: string }) {
   const { user } = useAuth();
   const { hasMinRole } = useStudioRole(studioId);
   const { toast } = useToast();
-  const isOwner = user?.role === "owner";
-  const isPlatformOwner = user?.role === "owner";
-  const canManageAudio = hasMinRole("director");
-  const hasAccess = isOwner || canManageAudio;
+  const isPlatformOwner = user?.role === "platform_owner";
+  const canManageAudio = hasMinRole("engenheiro_audio");
+  const hasAccess = isPlatformOwner || canManageAudio;
 
   const { data: takesRaw, isLoading } = useQuery<TakeDetail[]>({
     queryKey: ["/api/studios", studioId, "takes", "grouped"],

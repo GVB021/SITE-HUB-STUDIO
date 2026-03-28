@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from "react";
+import { useState, memo } from "react";
 import { useSessions, useCreateSession } from "@studio/hooks/use-sessions";
 import { useProductions } from "@studio/hooks/use-productions";
 import { Button } from "@studio/components/ui/button";
@@ -18,10 +18,10 @@ import { format } from "date-fns";
 import { useToast } from "@studio/hooks/use-toast";
 import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { useAuth } from "@studio/hooks/use-auth";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { authFetch } from "@studio/lib/auth-fetch";
 import {
-  PageSection, PageHeader, EmptyState, StatusBadge, FieldGroup
+  PageSection, PageHeader, EmptyState, StatusBadge, FieldGroup, GridSkeleton
 } from "@studio/components/ui/design-system";
 import { pt } from "@studio/lib/i18n";
 import { computeSessionStatus, sessionEntryAllowed, formatCountdownTime } from "@studio/lib/session-status";
@@ -31,15 +31,11 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const { data: productions } = useProductions(studioId);
   const createSession = useCreateSession(studioId);
   const { toast } = useToast();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { canCreateSessions, hasMinRole } = useStudioRole(studioId);
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const canDeleteSessions = user?.role === "owner";
-  const { data: storageOptions } = useQuery({
-    queryKey: ["/api/storage/options"],
-    queryFn: () => authFetch("/api/storage/options") as Promise<any>,
-  });
+  const isStudioAdmin = hasMinRole("studio_admin");
 
   const search = useSearch();
   const searchParams = new URLSearchParams(search || "");
@@ -63,28 +59,15 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const [title, setTitle] = useState("");
   const [prodId, setProdId] = useState(filterProductionId || "");
   const [dateStr, setDateStr] = useState("");
-  const storageProvider: "supabase" = "supabase";
-  const [takesPath, setTakesPath] = useState("");
-
-  useEffect(() => {
-    if (!storageOptions) return;
-    setTakesPath(String(storageOptions.defaultPath || storageOptions.paths?.[0] || "uploads"));
-  }, [storageOptions]);
 
   const handleCreate = async () => {
     if (!title || !prodId || !dateStr) return;
-    if (storageOptions && !storageOptions.supabaseOk) {
-      toast({ title: "Supabase indisponivel", description: storageOptions.supabaseReason || "Verifique conexao", variant: "destructive" });
-      return;
-    }
     await createSession.mutateAsync({
       title,
       productionId: prodId,
       scheduledAt: new Date(dateStr).toISOString(),
       status: "scheduled",
       durationMinutes: 60,
-      storageProvider: "supabase",
-      takesPath,
     });
     setIsOpen(false);
     setTitle("");
@@ -154,31 +137,11 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                         data-testid="input-session-date"
                       />
                     </FieldGroup>
-                    <FieldGroup label="Armazenamento dos Takes">
-                      <Input value="Supabase" disabled data-testid="input-storage-provider" />
-                      {storageOptions && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {storageOptions.supabaseOk ? "Conexao OK" : `Conexao falhou: ${storageOptions.supabaseReason || "—"}`}
-                        </p>
-                      )}
-                    </FieldGroup>
-                    <FieldGroup label="Caminho de Salvamento (Takes)">
-                      <Select value={takesPath} onValueChange={setTakesPath}>
-                        <SelectTrigger data-testid="select-takes-path">
-                          <SelectValue placeholder="Selecionar..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(storageOptions?.paths || ["uploads"]).map((p: string) => (
-                            <SelectItem key={p} value={p}>{p}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FieldGroup>
                   </div>
                   <DialogFooter>
                     <Button
                       onClick={handleCreate}
-                      disabled={!title || !prodId || !dateStr || !takesPath || createSession.isPending || (storageOptions && !storageOptions.supabaseOk)}
+                      disabled={!title || !prodId || !dateStr || createSession.isPending}
                       className="press-effect"
                       data-testid="button-schedule-session"
                     >
@@ -244,7 +207,7 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
 
                 <div className="flex items-center gap-3 shrink-0">
                   <StatusBadge status={computedStatus} />
-                  {canDeleteSessions && (
+                  {(isStudioAdmin || (canCreateSessions && (session as any).createdBy === user?.id)) && (
                     <Button
                       size="sm"
                       variant="ghost"

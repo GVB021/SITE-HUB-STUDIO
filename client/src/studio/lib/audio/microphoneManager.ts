@@ -16,17 +16,6 @@ export interface MicrophoneState {
 
 let currentState: MicrophoneState | null = null;
 
-async function resumeIfSuspended(ctx: AudioContext): Promise<void> {
-  if (ctx.state === "suspended") {
-    try {
-      await ctx.resume();
-      console.log("[Mic] AudioContext resumed from suspended");
-    } catch (e) {
-      console.warn("[Mic] Failed to resume AudioContext:", e);
-    }
-  }
-}
-
 export async function requestMicrophone(
   mode: VoiceCaptureMode = "original",
   deviceId?: string
@@ -44,7 +33,7 @@ export async function requestMicrophone(
   const isStudio = mode === "studio";
   const isHighFidelity = mode === "high-fidelity";
   
-  let stream: MediaStream | undefined;
+  let stream: MediaStream;
   try {
     const constraints: MediaTrackConstraints = {
       sampleRate: SAMPLE_RATE,
@@ -66,89 +55,22 @@ export async function requestMicrophone(
       });
     } else {
       Object.assign(constraints, {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        echoCancellation: isStudio,
+        noiseSuppression: isStudio,
+        autoGainControl: isStudio,
       });
     }
 
     stream = await navigator.mediaDevices.getUserMedia({
       audio: constraints,
     });
-  } catch (err: any) {
-    console.error("[Mic] getUserMedia failed for mode", mode, {
-      name: err?.name,
-      message: err?.message,
-      constraintName: err?.constraint,
-      deviceId: deviceId || "default",
-    });
-    
-    // If user explicitly denied permission, don't try fallbacks
-    if (err?.name === 'NotAllowedError') {
-      throw new Error("Permissão de microfone negada pelo usuário. Por favor,允许 o acesso ao microfone nas configurações do navegador.");
-    }
-    
-    // Try progressive fallbacks
-    const fallbackAttempts = [
-      // Attempt 1: Same constraints but without specific deviceId
-      ...(deviceId ? [{
-        name: "default device",
-        constraints: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        }
-      }] : []),
-      // Attempt 2: Minimal constraints without sampleRate/channelCount
-      {
-        name: "minimal constraints",
-        constraints: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        }
-      },
-      // Attempt 3: Absolute minimal - just audio: true
-      {
-        name: "basic audio",
-        constraints: true as any
-      }
-    ];
-
-    for (const attempt of fallbackAttempts) {
-      try {
-        console.warn(`[Mic] Trying fallback: ${attempt.name}`);
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: attempt.constraints,
-        });
-        console.warn(`[Mic] Fallback succeeded: ${attempt.name}`);
-        break;
-      } catch (fallbackErr: any) {
-        console.error(`[Mic] Fallback failed: ${attempt.name}`, {
-          name: fallbackErr?.name,
-          message: fallbackErr?.message,
-        });
-        
-        // If user denied permission, stop trying fallbacks
-        if (fallbackErr?.name === 'NotAllowedError') {
-          throw new Error("Permissão de microfone negada pelo usuário. Por favor,允许 o acesso ao microfone nas configurações do navegador.");
-        }
-        // Continue to next fallback attempt
-      }
-    }
-
-    // If all fallbacks failed and we have existing state, keep it
-    if (!stream && currentState && currentState.audioContext.state !== "closed") {
-      console.log("[Mic] All fallbacks failed, keeping existing mic state");
+  } catch (err) {
+    console.error("[Mic] getUserMedia failed for mode", mode, err);
+    if (currentState && currentState.audioContext.state !== "closed") {
+      console.log("[Mic] Keeping existing mic state as fallback");
       return currentState;
     }
-
-    // If we still don't have a stream, throw the original error
-    if (!stream) {
-      throw err;
-    }
+    throw err;
   }
 
   if (currentState && currentState.audioContext.state !== "closed") {
@@ -157,10 +79,22 @@ export async function requestMicrophone(
 
   const audioContext = new AudioContext({ 
     sampleRate: SAMPLE_RATE,
-    latencyHint: "interactive"
+    latencyHint: isHighFidelity ? "interactive" : "balanced"
   });
   
-  await resumeIfSuspended(audioContext);
+  if (isHighFidelity) {
+    try {
+      await audioContext.audioWorklet.addModule("/audio-processor.js");
+      console.log("[Mic] AudioWorklet module loaded");
+    } catch (e) {
+      console.error("[Mic] Failed to load AudioWorklet", e);
+    }
+  }
+
+  if (audioContext.state === "suspended") {
+    await audioContext.resume();
+    console.log("[Mic] AudioContext resumed from suspended state");
+  }
 
   const sourceNode = audioContext.createMediaStreamSource(stream);
   const gainNode = audioContext.createGain();
@@ -175,9 +109,24 @@ export async function requestMicrophone(
   const filterNodes: AudioNode[] = [];
 
   if (isStudio) {
-    // Studio mode: RAW capture without processing
-    sourceNode.connect(gainNode);
-    console.log("[Mic] Studio mode: RAW capture (no processing)");
+    const highPassFilter = audioContext.createBiquadFilter();
+    highPassFilter.type = "highpass";
+    highPassFilter.frequency.value = 80;
+    highPassFilter.Q.value = 0.7;
+    filterNodes.push(highPassFilter);
+
+    const compressor = audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 12;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.15;
+    filterNodes.push(compressor);
+
+    sourceNode.connect(highPassFilter);
+    highPassFilter.connect(compressor);
+    compressor.connect(gainNode);
+    console.log("[Mic] Studio mode: highpass(80Hz) → compressor → gain");
   } else if (isHighFidelity) {
     // Direct path for high fidelity
     sourceNode.connect(gainNode);
@@ -218,11 +167,6 @@ export function getAnalyserData(state: MicrophoneState): Uint8Array {
 }
 
 export function setGain(state: MicrophoneState, value: number): void {
-  // 🔒 CRITICAL FIX: Prevent crash when audioContext is undefined
-  if (!state?.audioContext) {
-    console.warn("[Mic] AudioContext not available, cannot set gain");
-    return;
-  }
   const clamped = Math.max(0, Math.min(2, value));
   state.gainNode.gain.setTargetAtTime(clamped, state.audioContext.currentTime, 0.01);
 }
@@ -247,15 +191,4 @@ export function releaseMicrophone(): void {
 
 export function getMicState(): MicrophoneState | null {
   return currentState;
-}
-
-export function getEstimatedInputLatencyMs(state: MicrophoneState): number {
-  // 🔒 CRITICAL FIX: Prevent crash when audioContext is undefined
-  if (!state?.audioContext) {
-    console.warn("[Mic] AudioContext not available, returning default latency");
-    return 10; // Safe default latency in ms
-  }
-  const baseLatency = Number(state.audioContext.baseLatency || 0);
-  const outputLatency = Number((state.audioContext as any).outputLatency || 0);
-  return (baseLatency + outputLatency) * 1000;
 }

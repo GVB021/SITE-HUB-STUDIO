@@ -1,7 +1,7 @@
 export * from "./models/auth";
 
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -46,27 +46,11 @@ export const studios = pgTable("studios", {
   photoUrl: text("photo_url"),
   isActive: boolean("is_active").default(true),
   ownerId: varchar("owner_id").notNull().references(() => users.id),
-  planTier: text("plan_tier").default("basic"),
-  planStatus: text("plan_status").default("active"),
-  billingContactEmail: text("billing_contact_email"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
     slugIdx: index("studios_slug_idx").on(table.slug),
     ownerIdIdx: index("studios_owner_id_idx").on(table.ownerId),
-  };
-});
-
-export const studioProfiles = pgTable("studio_profiles", {
-  studioId: varchar("studio_id")
-    .primaryKey()
-    .references(() => studios.id, { onDelete: "cascade" }),
-  data: jsonb("data").notNull().default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => {
-  return {
-    studioIdIdx: index("studio_profiles_studio_id_idx").on(table.studioId),
   };
 });
 
@@ -81,7 +65,6 @@ export const studioMemberships = pgTable("studio_memberships", {
   return {
     userIdIdx: index("studio_memberships_user_id_idx").on(table.userId),
     studioIdIdx: index("studio_memberships_studio_id_idx").on(table.studioId),
-    uniqueStudioUser: uniqueIndex("studio_memberships_studio_user_idx").on(table.studioId, table.userId),
   };
 });
 
@@ -145,8 +128,6 @@ export const sessions = pgTable("recording_sessions", {
   scheduledAt: timestamp("scheduled_at").notNull(),
   durationMinutes: integer("duration_minutes").notNull().default(60),
   status: text("status").notNull().default("scheduled"),
-  storageProvider: text("storage_provider").notNull().default("supabase"),
-  takesPath: text("takes_path").notNull().default("uploads"),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
@@ -179,7 +160,6 @@ export const takes = pgTable("takes", {
   isPreferred: boolean("is_preferred").default(false),
   qualityScore: real("quality_score"),
   aiRecommended: boolean("ai_recommended").default(false),
-  voiceActorName: varchar("voice_actor_name"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -192,14 +172,12 @@ export const takes = pgTable("takes", {
 export const auditLog = pgTable("audit_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
-  actingUserId: varchar("acting_user_id").references(() => users.id),
   action: text("action").notNull(),
   details: text("details"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
     userIdIdx: index("audit_log_user_id_idx").on(table.userId),
-    actingUserIdIdx: index("audit_log_acting_user_id_idx").on(table.actingUserId),
   };
 });
 
@@ -235,7 +213,6 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type UserRole = typeof userRoles.$inferSelect;
 export type Studio = typeof studios.$inferSelect;
-export type StudioProfile = typeof studioProfiles.$inferSelect;
 export type StudioMembership = typeof studioMemberships.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type Production = typeof productions.$inferSelect;

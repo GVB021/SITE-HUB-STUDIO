@@ -1,749 +1,762 @@
-import { useParams, Link, useLocation } from "wouter";
+import { useParams, Link } from "wouter";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { authFetch } from "@studio/lib/auth-fetch";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
-  AlertCircle,
-  Settings,
-  Monitor,
-  User,
-  Edit3,
-  ListMusic,
-  Video,
   Mic,
-  PhoneCall,
-  Check,
-  X,
-  Home,
-  Film,
-  MessageSquare,
-  Wrench,
-  CreditCard,
-  ChevronRight,
-  RotateCcw,
-  Plus,
-  Send,
-  Users,
+  MicOff,
   Play,
   Pause,
   Square,
+  Save,
+  ArrowLeft,
+  Circle,
+  CheckCircle2,
+  Volume2,
+  VolumeX,
+  Trash2,
+  Headphones,
+  AlertCircle,
+  RotateCcw,
+  RotateCw,
   Repeat,
-  SkipBack,
-  SkipForward,
-  Clock,
-  ChevronUp,
-  ChevronDown,
-  Scroll,
-  Edit,
-  Filter,
+  Settings,
+  X,
+  Monitor,
+  User,
+  Edit3,
+  Download,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
-import { HardwareSetupDialog } from "@studio/components/hardware/HardwareSetupDialog";
-import {
-  useSessionData,
-  useProductionScript,
-  useCharactersList,
-  useTakesList,
-  useRecordingsList,
-} from "@studio/hooks/room";
-import { useStudioRole } from "@studio/hooks/use-studio-role";
-import SessionBlockedScreen from "@studio/pages/admin/components/SessionBlockedScreen";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
-import { useRoomLogger } from "@studio/hooks/useRoomLogger";
-import { useRoomPermissions } from "@studio/hooks/useRoomPermissions";
-import { useWebSocketRoom } from "@studio/hooks/useWebSocketRoom";
-import { TIMING, THRESHOLDS, VALIDATION } from "@studio/constants/timing";
-import { validateMicrophoneBeforeRecording } from "@studio/lib/audio/microphoneValidation";
+import { formatTimecode, parseTimecode } from "@studio/lib/timecode";
+import { cn } from "@studio/lib/utils";
+
 import {
   requestMicrophone,
   releaseMicrophone,
   setGain,
-  getEstimatedInputLatencyMs,
+  getAnalyserData,
   type MicrophoneState,
   type VoiceCaptureMode,
 } from "@studio/lib/audio/microphoneManager";
+import MonitorPanel from "@studio/components/audio/MonitorPanel";
 
-export type { MicrophoneState, VoiceCaptureMode };
+
 import {
   startCapture,
   stopCapture,
+  createPreviewUrl,
+  revokePreviewUrl,
   playCountdownBeep,
+  type RecordingStatus,
+  type RecordingResult,
 } from "@studio/lib/audio/recordingEngine";
-import {
-  encodeWav,
-  wavToBlob,
-} from "@studio/lib/audio/wavEncoder";
-import { analyzeTakeQuality } from "@studio/lib/audio/qualityAnalysis";
-import { SimpleAudioSettings } from "@studio/components/audio/SimpleAudioSettings";
-import { cn } from "@studio/lib/utils";
-import {
-  parseTimecode,
-  formatTimecodeByFormat,
-  parseUniversalTimecodeToSeconds,
-} from "@studio/lib/timecode";
-import {
-  buildScrollAnchors,
-  interpolateScrollTop,
-  computeAdaptiveMaxSpeedPxPerSec,
-  smoothScrollStep,
-} from "@studio/lib/script-scroll-sync";
-import { DailyMeetPanel } from "@studio/components/video/DailyMeetPanel";
-import { SafeDailyMeetPanel } from "@studio/components/video/SafeDailyMeetPanel";
-import { VideoPlayer } from "@studio/components/room/video/VideoPlayer";
-import { DirectorReview, ShortcutsDialog, DiscardTakeModal, TextControlPopup } from "@studio/components/room/modals";
-import { RoomHeader } from "@studio/components/room/header/RoomHeader";
-import { RoomHeaderActions } from "@studio/components/room/header/RoomHeaderActions";
-import { MobileMenu, MobileScriptDrawer } from "@studio/components/room/mobile";
-import { ScriptLineRow } from "@studio/components/room/script";
-import { CountdownOverlay, DirectorConsole } from "@studio/components/room/overlays";
-import { RecordingsPanel } from "@studio/components/room/recordings";
-import { RecordingProfilePanel } from "@studio/components/room/profile";
-import {
-  DEFAULT_SHORTCUTS,
-  SHORTCUT_LABELS,
-  UI_LAYER_BASE,
-  keyLabel,
-  normalizeRoomRole,
-  resolveUiRole,
-  hasUiPermission,
-  canReceiveTextControl,
-  getUserPermissions,
-} from "@studio/lib/room-utils";
+import { encodeWav, wavToBlob, getDurationSeconds } from "@studio/lib/audio/wavEncoder";
+import { analyzeTakeQuality, type QualityMetrics } from "@studio/lib/audio/qualityAnalysis";
 
-export interface ScriptLine {
+function DailyMeetPanel({ sessionId }: { sessionId: string }) {
+  const [isOpen, setIsOpen] = useState(true);
+  const [isCompact, setIsCompact] = useState(false);
+  const [dailyUrl, setDailyUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authFetch("/api/create-room", {
+          method: "POST",
+          body: JSON.stringify({ sessionId }),
+        });
+        if (!cancelled && res?.url) {
+          setDailyUrl(res.url);
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message || "Erro ao criar sala");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const panelHeight = isOpen ? (isCompact ? "200px" : "400px") : "0px";
+
+  return (
+    <div className="mt-4 rounded-xl overflow-hidden glass-panel" data-testid="panel-daily">
+      <div className={cn("flex items-center justify-between px-3 py-2 transition-colors", isOpen ? "border-b border-border/50 bg-muted/20" : "bg-transparent")}>
+        <span className="text-[11px] font-medium flex items-center gap-1.5 text-muted-foreground">
+          <Mic className="w-3 h-3 text-emerald-500" /> Chat de Voz
+        </span>
+        <div className="flex items-center gap-2">
+          {isOpen && !isCompact && (
+            <button
+              onClick={() => setIsCompact(true)}
+              className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              data-testid="button-compact-daily"
+            >
+              <Minimize2 className="w-3 h-3" /> Reduzir
+            </button>
+          )}
+          {isOpen && isCompact && (
+            <button
+              onClick={() => setIsCompact(false)}
+              className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              data-testid="button-expand-daily"
+            >
+              <Maximize2 className="w-3 h-3" /> Expandir
+            </button>
+          )}
+          <button
+            onClick={() => setIsOpen(v => !v)}
+            className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            data-testid="button-toggle-daily"
+          >
+            {isOpen ? <><X className="w-3 h-3" /> Minimizar</> : <><Mic className="w-3 h-3" /> Abrir</>}
+          </button>
+        </div>
+      </div>
+      <div style={{
+        height: panelHeight,
+        overflow: "hidden",
+        transition: "height 0.3s ease",
+      }}>
+        {loading && (
+          <div className="flex items-center justify-center text-muted-foreground" style={{ height: isCompact ? "200px" : "400px" }}>
+            <span className="text-xs">Criando sala de voz...</span>
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center justify-center text-destructive" style={{ height: isCompact ? "200px" : "400px" }}>
+            <span className="text-xs">{error}</span>
+          </div>
+        )}
+        {dailyUrl && !loading && (
+          <iframe
+            src={dailyUrl}
+            allow="camera; microphone; autoplay; display-capture; fullscreen"
+            className="w-full"
+            style={{ height: isCompact ? "200px" : "400px", border: "none", borderRadius: "0 0 12px 12px" }}
+            data-testid="iframe-daily-meet"
+            title="Daily.co Voice Chat"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ScriptLine {
   character: string;
   start: number;
-  end: number;
   text: string;
+  end?: number;
 }
 
-type ScriptLineOverride = {
-  character?: string;
-  text?: string;
-  start?: number;
+interface RecordingProfile {
+  voiceActorName: string;
+  characterName: string;
+  characterId: string;
+  voiceActorId: string;
+  userId: string;
+  sessionId: string;
+  productionId: string;
+}
+
+interface Shortcuts {
+  playPause: string;
+  record: string;
+  stop: string;
+  loop: string;
+  back: string;
+  forward: string;
+}
+
+const DEFAULT_SHORTCUTS: Shortcuts = {
+  playPause: "Space",
+  record: "KeyR",
+  stop: "KeyS",
+  loop: "KeyL",
+  back: "ArrowLeft",
+  forward: "ArrowRight",
 };
 
-export type RecordingStatus =
-  | "idle"
-  | "countdown"
-  | "recording"
-  | "stopping"
-  | "stopped"
-  | "recorded"
-  | "previewing";
+const SHORTCUT_LABELS: Record<keyof Shortcuts, string> = {
+  playPause: "Reproduzir / Pausar",
+  record: "Gravar",
+  stop: "Parar",
+  loop: "Alternar Loop",
+  back: "Voltar 2s",
+  forward: "Avancar 2s",
+};
 
-export interface RecordingResult {
-  samples: Float32Array;
-  durationSeconds: number;
-  sampleRate: number;
+function keyLabel(code: string): string {
+  const map: Record<string, string> = {
+    Space: "Space",
+    ArrowLeft: "\u2190",
+    ArrowRight: "\u2192",
+    ArrowUp: "\u2191",
+    ArrowDown: "\u2193",
+    Escape: "Esc",
+  };
+  if (map[code]) return map[code];
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return code;
 }
 
-export interface QualityMetrics {
-  score: number;
-  clipping: boolean;
-  loudness: number;
-  noiseFloor: number;
+function CountdownOverlay({ count }: { count: number }) {
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center animate-in fade-in duration-200" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-24 h-24 rounded-full flex items-center justify-center" style={{ border: "4px solid rgba(239,68,68,0.4)", boxShadow: "0 0 40px rgba(239,68,68,0.3), inset 0 0 20px rgba(239,68,68,0.1)" }}>
+          <span className="text-6xl font-light font-mono tabular-nums" style={{ color: "hsl(0 72% 65%)", textShadow: "0 0 20px rgba(239,68,68,0.5)" }}>{count}</span>
+        </div>
+        <span className="text-xs uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.45)" }}>Gravando em...</span>
+      </div>
+    </div>
+  );
 }
 
-export interface DeviceSettings {
+function useSessionData(studioId: string, sessionId: string) {
+  return useQuery({
+    queryKey: ["/api/studios", studioId, "sessions", sessionId],
+    queryFn: () => authFetch(`/api/studios/${studioId}/sessions/${sessionId}`),
+    enabled: !!studioId && !!sessionId,
+  });
+}
+
+function useProductionScript(studioId: string, productionId?: string) {
+  return useQuery({
+    queryKey: ["/api/studios", studioId, "productions", productionId],
+    queryFn: () =>
+      authFetch(`/api/studios/${studioId}/productions/${productionId}`),
+    enabled: !!studioId && !!productionId,
+  });
+}
+
+function useCharactersList(productionId?: string) {
+  return useQuery({
+    queryKey: ["/api/productions", productionId, "characters"],
+    queryFn: () =>
+      authFetch(`/api/productions/${productionId}/characters`) as Promise<
+        Array<{ id: string; name: string; voiceActorId: string | null }>
+      >,
+    enabled: !!productionId,
+  });
+}
+
+interface DeviceSettings {
   inputDeviceId: string;
   outputDeviceId: string;
   inputGain: number;
   monitorVolume: number;
   voiceCaptureMode: VoiceCaptureMode;
+  force48k?: boolean;
+  disableSystemProcessing?: boolean;
 }
 
-export interface Shortcuts {
-  playPause: string;
-  record: string;
-  stop: string;
-  back: string;
-  forward: string;
-  loop: string;
+function DeviceSettingsPanel({
+  open,
+  onClose,
+  settings,
+  onSettingsChange,
+  micState,
+}: {
+  open: boolean;
+  onClose: () => void;
+  settings: DeviceSettings;
+  onSettingsChange: (s: DeviceSettings) => void;
+  micState: MicrophoneState | null;
+}) {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const refreshDevices = () => {
+      navigator.mediaDevices.enumerateDevices().then((devs) => {
+        setDevices(devs);
+        const hasLabels = devs.some((d) => d.label.length > 0);
+        setPermissionGranted(hasLabels);
+      });
+    };
+
+    refreshDevices();
+    navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", refreshDevices);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !micState || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const draw = () => {
+      const data = getAnalyserData(micState);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / data.length;
+      const norm = Math.min(1, (avg / 128) * 1.5); 
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const width = canvas.width * norm;
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+      gradient.addColorStop(0, "#10b981");
+      gradient.addColorStop(0.6, "#f59e0b");
+      gradient.addColorStop(1, "#ef4444");
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, canvas.height);
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [open, micState]);
+
+  const requestPerms = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      setDevices(devs);
+      setPermissionGranted(true);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const playTestSound = () => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+      
+      // @ts-ignore
+      if (typeof ctx.setSinkId === 'function' && settings.outputDeviceId) {
+          // @ts-ignore
+          ctx.setSinkId(settings.outputDeviceId).catch(console.error);
+      }
+    } catch (e) {
+      console.error("Audio test failed", e);
+    }
+  };
+
+  if (!open) return null;
+
+  const mics = devices.filter((d) => d.kind === "audioinput");
+  const speakers = devices.filter((d) => d.kind === "audiooutput");
+
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="rounded-2xl w-[480px] overflow-hidden glass-panel shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+          <span className="text-sm font-semibold text-foreground">Configuracoes de Dispositivo</span>
+          <button
+            onClick={onClose}
+            className="transition-colors text-muted-foreground hover:text-foreground"
+            data-testid="button-close-device-settings"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {!permissionGranted && (
+          <div className="px-6 py-4 bg-yellow-500/10 border-b border-yellow-500/20">
+            <p className="text-xs text-yellow-600 dark:text-yellow-200 mb-2">Permissao de microfone necessaria para listar dispositivos.</p>
+            <button onClick={requestPerms} className="vhub-btn-xs vhub-btn-secondary">Conceder Permissao</button>
+          </div>
+        )}
+
+        <div className="px-6 py-5 flex flex-col gap-6">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="vhub-label block">Microfone</label>
+              {settings.inputDeviceId && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  Ativo
+                </span>
+              )}
+            </div>
+            <select
+              className="w-full h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+              value={settings.inputDeviceId}
+              onChange={(e) => onSettingsChange({ ...settings, inputDeviceId: e.target.value })}
+              data-testid="select-microphone"
+            >
+              {mics.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Microfone ${d.deviceId.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+            
+            <div className="h-2 rounded-full overflow-hidden bg-muted border border-border relative">
+              <canvas ref={canvasRef} width={430} height={8} className="w-full h-full block" />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <label className="vhub-label block">Alto-falante (Monitor)</label>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+                value={settings.outputDeviceId}
+                onChange={(e) => onSettingsChange({ ...settings, outputDeviceId: e.target.value })}
+                data-testid="select-speaker"
+              >
+                {speakers.length === 0 ? (
+                  <option value="">Padrao do sistema</option>
+                ) : (
+                  speakers.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || `Alto-falante ${d.deviceId.slice(0, 8)}`}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button 
+                onClick={playTestSound}
+                className="h-9 px-3 rounded-lg bg-muted hover:bg-muted/80 border border-border transition-colors"
+                title="Testar som"
+              >
+                <Volume2 className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-muted/30 border border-border/50">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="vhub-label">Ganho (Input)</label>
+                <span className="text-xs font-mono text-muted-foreground">{Math.round(settings.inputGain * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.05}
+                value={settings.inputGain}
+                onChange={(e) =>
+                  onSettingsChange({ ...settings, inputGain: parseFloat(e.target.value) })
+                }
+                className="w-full h-1.5 accent-primary bg-muted rounded-full appearance-none cursor-pointer"
+                data-testid="slider-input-gain"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="vhub-label">Volume (Output)</label>
+                <span className="text-xs font-mono text-muted-foreground">{Math.round(settings.monitorVolume * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.monitorVolume}
+                onChange={(e) =>
+                  onSettingsChange({ ...settings, monitorVolume: parseFloat(e.target.value) })
+                }
+                className="w-full h-1.5 accent-primary bg-muted rounded-full appearance-none cursor-pointer"
+                data-testid="slider-monitor-volume"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="vhub-label mb-2 block">Modo de Captura</label>
+            <select
+              value={settings.voiceCaptureMode}
+              onChange={(e) => onSettingsChange({ ...settings, voiceCaptureMode: e.target.value as VoiceCaptureMode })}
+              className="w-full h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+              data-testid="select-voice-capture-mode"
+            >
+              <option value="studio">Studio Mode (Processado)</option>
+              <option value="original">Microfone Original</option>
+              <option value="high-fidelity">High-End (Lossless 24-bit)</option>
+            </select>
+            <p className="text-[10px] mt-2 leading-relaxed text-muted-foreground">
+              {settings.voiceCaptureMode === "studio"
+                ? "Filtro passa-alta 80Hz + compressor + reducao de ruido. Ideal para ambientes ruidosos."
+                : settings.voiceCaptureMode === "high-fidelity"
+                ? "Captura RAW 24-bit via AudioWorklet. Desativa todo processamento do sistema. Requer interface de audio."
+                : "Captura padrao do navegador sem efeitos adicionais."}
+            </p>
+          </div>
+
+          {settings.voiceCaptureMode === "high-fidelity" && (
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex gap-3 items-start">
+              <div className="mt-0.5 w-2 h-2 shrink-0 rounded-full bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />
+              <div>
+                <p className="text-xs font-medium text-destructive">Controle Exclusivo de Hardware</p>
+                <p className="text-[10px] text-destructive/70 leading-tight mt-0.5">
+                  O sistema assumiu o controle do driver de audio para garantir 48kHz/24-bit com latencia zero.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={onClose}
+              className="vhub-btn-sm vhub-btn-primary w-full sm:w-auto"
+              data-testid="button-apply-device-settings"
+            >
+              Concluido
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export interface ScrollAnchor {
-  time: number;
-  scrollTop: number;
-}
+function RecordingProfilePanel({
+  characters,
+  user,
+  sessionId,
+  productionId,
+  onSave,
+  onClose,
+  existingProfile,
+}: {
+  characters: Array<{ id: string; name: string; voiceActorId: string | null }>;
+  user: any;
+  sessionId: string;
+  productionId: string;
+  onSave: (profile: RecordingProfile) => void;
+  onClose?: () => void;
+  existingProfile?: RecordingProfile | null;
+}) {
+  const [actorName, setActorName] = useState(
+    existingProfile?.voiceActorName || user?.displayName || user?.fullName || ""
+  );
+  const [selectedCharId, setSelectedCharId] = useState(
+    existingProfile?.characterId || (characters.length > 0 ? characters[0].id : "")
+  );
+  const [freeCharName, setFreeCharName] = useState(existingProfile?.characterName || "");
 
-export type RecordingAvailabilityState = "available" | "loading" | "error";
+  const { toast } = useToast();
+  const selectedChar = characters.find((c) => c.id === selectedCharId);
+  const hasCharacters = characters.length > 0;
+  const [isCreating, setIsCreating] = useState(false);
 
-export interface RecordingProfile {
-  actorName: string;
-  characterId: string;
-  characterName: string;
-  voiceActorId: string;
-  voiceActorName: string;
+  const handleSubmit = async () => {
+    if (!actorName.trim()) return;
+    if (hasCharacters && selectedChar) {
+      onSave({
+        voiceActorName: actorName.trim(),
+        characterName: selectedChar.name,
+        characterId: selectedChar.id,
+        voiceActorId: selectedChar.voiceActorId || user?.id || "",
+        userId: user?.id || "",
+        sessionId,
+        productionId,
+      });
+    } else if (freeCharName.trim()) {
+      setIsCreating(true);
+      try {
+        const created = await authFetch(`/api/productions/${productionId}/characters`, {
+          method: "POST",
+          body: JSON.stringify({ name: freeCharName.trim(), productionId }),
+        });
+        onSave({
+          voiceActorName: actorName.trim(),
+          characterName: freeCharName.trim(),
+          characterId: created.id,
+          voiceActorId: user?.id || "",
+          userId: user?.id || "",
+          sessionId,
+          productionId,
+        });
+      } catch (err: any) {
+        toast({ title: "Erro ao criar personagem", description: err?.message || "Tente novamente", variant: "destructive" });
+      } finally {
+        setIsCreating(false);
+      }
+    }
+  };
+
+  const canSubmit = !isCreating && actorName.trim() && (hasCharacters ? !!selectedCharId : freeCharName.trim());
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="rounded-2xl w-[440px] overflow-hidden glass-panel shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold text-foreground">Perfil de Gravacao</span>
+          </div>
+          {onClose && (
+            <button onClick={onClose} className="transition-colors text-muted-foreground hover:text-foreground" data-testid="button-close-profile">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <div className="px-6 py-5 flex flex-col gap-4">
+          <p className="text-xs text-muted-foreground">
+            Configure seu perfil antes de gravar. Estes dados serao usados automaticamente em todos os takes.
+          </p>
+
+          <div>
+            <label className="vhub-label mb-1.5 block">
+              Nome do Dublador
+            </label>
+            <input
+              type="text"
+              value={actorName}
+              onChange={(e) => setActorName(e.target.value)}
+              placeholder="Seu nome artistico"
+              className="w-full h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+              data-testid="input-actor-name"
+            />
+          </div>
+
+          <div>
+            <label className="vhub-label mb-1.5 block">
+              Personagem
+            </label>
+            {hasCharacters ? (
+              <select
+                value={selectedCharId}
+                onChange={(e) => setSelectedCharId(e.target.value)}
+                className="w-full h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+                data-testid="select-character"
+              >
+                {characters.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={freeCharName}
+                onChange={(e) => setFreeCharName(e.target.value)}
+                placeholder="Nome do personagem"
+                className="w-full h-9 rounded-lg px-3 text-sm bg-muted/50 border border-border text-foreground focus:border-primary outline-none"
+                data-testid="input-character-name"
+              />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="vhub-label mb-1 block">ID Usuario</label>
+              <div className="h-8 rounded-lg px-3 flex items-center text-xs font-mono truncate bg-muted/30 text-muted-foreground" data-testid="text-user-id">
+                {user?.id?.slice(0, 12)}...
+              </div>
+            </div>
+            <div>
+              <label className="vhub-label mb-1 block">Sessao</label>
+              <div className="h-8 rounded-lg px-3 flex items-center text-xs font-mono truncate bg-muted/30 text-muted-foreground" data-testid="text-session-id">
+                {sessionId?.slice(0, 12)}...
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 flex justify-end border-t border-border/50">
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="vhub-btn-sm vhub-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+            data-testid="button-save-profile"
+          >
+            {isCreating ? "Criando personagem..." : "Iniciar Gravacao"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function RecordingRoom() {
   const { studioId, sessionId } = useParams<{ studioId: string; sessionId: string }>();
-  const { role: studioRole, isDirector } = useStudioRole(studioId || "");
-  const { user } = useAuth();
   const { toast } = useToast();
-  
-  const logger = useRoomLogger({
-    sessionId: sessionId || "",
-    userId: user?.id || "",
-    studioId: studioId || ""
-  });
-  
-  logger.info("RecordingRoom initialized", {
-    sessionId,
-    studioId,
-    userId: user?.id,
-    userRole: user?.role,
-    studioRole,
-    isDirector
-  });
-  const [, setLocation] = useLocation();
-  const [hardwareDialogOpen, setHardwareDialogOpen] = useState(false);
-  
-  // Modal state
-  const [discardModalTake, setDiscardModalTake] = useState<any>(null);
-  const [discardFinalStep, setDiscardFinalStep] = useState(false);
-
-  // Refs
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const desktopVideoTextContainerRef = useRef<HTMLDivElement>(null);
-  const scriptViewportRef = useRef<HTMLDivElement>(null);
-  const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
-  const scrollAnchorsRef = useRef<ScrollAnchor[]>([]);
-  const scrollSyncRafRef = useRef<number | null>(null);
-  const scrollSyncLastTsRef = useRef<number | null>(null);
-  const scrollSyncCurrentRef = useRef<number>(0);
-  const scrollSyncLastVideoTimeRef = useRef<number>(0);
-  const loopSilenceTimeoutRef = useRef<number | null>(null);
-  const loopSilenceLockRef = useRef<boolean>(false);
-  const previewAudioRef = useRef<HTMLAudioElement>(null);
-  const recordingsPreviewAudioRef = useRef<HTMLAudioElement>(null);
-  const recordingRowAudioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  const controlsTimeoutRef = useRef<number | null>(null);
-  const cachedRecordingBlobUrlsRef = useRef<Record<string, string>>({});
-
-  // Additional state
-  const [recordingsPreviewId, setRecordingsPreviewId] = useState<string | null>(null);
-  const [desktopVideoTextSplit, setDesktopVideoTextSplit] = useState(60);
-  const [isDraggingVideoTextSplit, setIsDraggingVideoTextSplit] = useState(false);
-  const [sideScriptWidth, setSideScriptWidth] = useState(320);
-  const [isDraggingSideScript, setIsDraggingSideScript] = useState(false);
-  const [optimisticRemovingTakeIds, setOptimisticRemovingTakeIds] = useState<Set<string>>(new Set());
-  const [recordingAvailability, setRecordingAvailability] = useState<Record<string, RecordingAvailabilityState>>({});
-  const [recordingPlayableUrls, setRecordingPlayableUrls] = useState<Record<string, string>>({});
-
-  // WebSocket state
-  const [roomUsers, setRoomUsers] = useState<any[]>([]);
-  const [presenceUsers, setPresenceUsers] = useState<any[]>([]);
-  const [lockedLines, setLockedLines] = useState<Record<number, any>>({});
-  const [liveDrafts, setLiveDrafts] = useState<Record<number, string>>({});
+  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [lastUploadedTakeId, setLastUploadedTakeId] = useState<string | null>(null);
-  const [isWaitingReview, setIsWaitingReview] = useState(false);
 
-  // Data fetching hooks
-  const { data: session, isLoading: sessionLoading, error: sessionError } = useSessionData(studioId || "", sessionId || "");
-  const { data: production, isLoading: productionLoading, error: productionError } = useProductionScript(session?.productionId || "");
-  const { data: charactersList, isLoading: charactersLoading } = useCharactersList(session?.productionId || "");
-  const { data: takes, isLoading: takesLoading } = useTakesList(sessionId || "");
-  
-  if (sessionError) {
-    logger.error("Failed to load session data", { error: sessionError });
-  }
-  if (productionError) {
-    logger.error("Failed to load production data", { error: productionError });
-  }
-  
-  // useRecordingsList movido para abaixo com parâmetros corretos
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [textControlPopupOpen, setTextControlPopupOpen] = useState(false);
-  const [showProfilePanel, setShowProfilePanel] = useState(false);
-  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
-  const [recordingsOpen, setRecordingsOpen] = useState(false);
-  const [isCustomizing, setIsCustomizing] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const [activeTab, setActiveTab] = useState("communication");
-
-  // Session access state
-  const [sessionAccessStatus, setSessionAccessStatus] = useState<{
-    canAccess: boolean;
-    scheduledAt?: Date;
-    minutesUntilStart?: number;
-    sessionTitle?: string;
-    hasSpecialAccess?: boolean;
-  } | null>(null);
-
-  // Playback state
+  const [currentLine, setCurrentLine] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [videoTime, setVideoTime] = useState(0);
-  const [videoDuration, setVideoDuration] = useState(0);
-  const [scriptAutoFollow, setScriptAutoFollow] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem(`vhub_script_follow_${sessionId}`);
-      return saved ? saved === "auto" : true;
-    } catch {
-      return true;
-    }
-  });
-
-  // Script editing state
-  const [lineOverrides, setLineOverrides] = useState<Record<number, ScriptLineOverride>>({});
-  const [lineEditHistory, setLineEditHistory] = useState<Record<number, Array<{ field: string; before: string; after: string; by: string }>>>({});
-  const [editingField, setEditingField] = useState<{ lineIndex: number; field: "character" | "text" | "timecode" } | null>(null);
-  const [editingDraftValue, setEditingDraftValue] = useState("");
-  const [currentLine, setCurrentLine] = useState(0);
-  const [charSelectorOpen, setCharSelectorOpen] = useState(false);
-  const [onlySelectedCharacter, setOnlySelectedCharacter] = useState(false);
-
-  // Recording state
-  const [recordingProfile, setRecordingProfile] = useState<RecordingProfile | null>(null);
-  
-  // Carregar perfil persistido ao iniciar — key unificada: vhub_rec_profile_${sessionId}
-  // actorName é sempre resetado para "" — o dublador deve digitar o nome manualmente em cada sessão
-  useEffect(() => {
-    const saved = localStorage.getItem(`vhub_rec_profile_${sessionId}`);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setRecordingProfile({ ...parsed, actorName: "", voiceActorName: "" });
-        logger.debug("Loaded saved recording profile", { characterId: parsed.characterId });
-      } catch (e) {
-        logger.warn("Failed to load saved recording profile", { error: e });
-      }
-    }
-  }, [sessionId]);
-  const [micReady, setMicReady] = useState(false);
-  const [micInitializing, setMicInitializing] = useState(false);
-  const [micState, setMicState] = useState<any>(null);
-  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
-  const [countdownValue, setCountdownValue] = useState(0);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDirectorSaving, setIsDirectorSaving] = useState(false);
-  const [pendingTake, setPendingTake] = useState<any>(null);
-  const [reviewingTake, setReviewingTake] = useState<any>(null);
-  const [directorReviewModalOpen, setDirectorReviewModalOpen] = useState(false);
-  const [recordingsIsLoading, setRecordingsIsLoading] = useState<Set<string>>(new Set());
-  const loopPreparationTimeoutRef = useRef<any>(null);
-  const countdownTimerRef = useRef<any>(null);
-  const [loopAnchorIndex, setLoopAnchorIndex] = useState<number | null>(null);
-  const [textControllerUserIds, setTextControllerUserIds] = useState<Set<string>>(new Set());
-  const [recordingsPlayerOpenId, setRecordingsPlayerOpenId] = useState<string | null>(null);
-  const statusInfo = useMemo(() => {
-    switch (recordingStatus) {
-      case "countdown":
-        return { label: "Contagem", badge: "bg-amber-500/15 text-amber-300 border border-amber-500/30" };
-      case "recording":
-        return { label: "GRAVANDO", badge: "bg-red-500/15 text-red-400 border border-red-500/30" };
-      case "stopping":
-        return { label: "Parando...", badge: "bg-orange-500/15 text-orange-300 border border-orange-500/30" };
-      case "recorded":
-        return { label: "Take registrado", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" };
-      default:
-        return { label: "Aguardando", badge: "bg-muted/30 text-muted-foreground border border-white/10" };
-    }
-  }, [recordingStatus]);
-
-  // Loop state
   const [isLooping, setIsLooping] = useState(false);
-  const [customLoop, setCustomLoop] = useState<{ start: number; end: number } | null>(null);
   const [loopSelectionMode, setLoopSelectionMode] = useState<"idle" | "selecting-start" | "selecting-end">("idle");
-  const [loopPreparing, setLoopPreparing] = useState(false);
-  const [loopSilenceActive, setLoopSilenceActive] = useState(false);
+  const [customLoop, setCustomLoop] = useState<{ start: number; end: number } | null>(null);
+  const [preRoll, setPreRoll] = useState(1);
+  const [postRoll, setPostRoll] = useState(1);
 
-  // Device settings
-  const [deviceSettings, setDeviceSettings] = useState<DeviceSettings>({
-    voiceCaptureMode: "high-fidelity",
-    inputDeviceId: "default",
-    inputGain: 1.0,
-    outputDeviceId: "default",
-    monitorVolume: 1.0,
-  });
-  const [dailyMeetOpen, setDailyMeetOpen] = useState(false);
-  const [dailyStatus, setDailyStatus] = useState<"conectando" | "conectado" | "desconectado">("desconectado");
-  const [loopRangeMeta, setLoopRangeMeta] = useState<{ startIndex: number; endIndex: number } | null>(null);
-  
-  // Estados de controle do script
-  const [isEditingScript, setIsEditingScript] = useState(false);
-  const [selectedCharacter, setSelectedCharacter] = useState<string>("todos");
-  
-  // Estados do dropdown de takes
-  const [takesDropdownOpen, setTakesDropdownOpen] = useState(false);
-
-  // Shortcuts
   const [shortcuts, setShortcuts] = useState<Shortcuts>(() => {
     try {
       const saved = localStorage.getItem("vhub_shortcuts");
-      return saved ? { ...DEFAULT_SHORTCUTS, ...JSON.parse(saved) } : DEFAULT_SHORTCUTS;
+      return saved ? JSON.parse(saved) : DEFAULT_SHORTCUTS;
     } catch {
       return DEFAULT_SHORTCUTS;
     }
   });
   const [pendingShortcuts, setPendingShortcuts] = useState<Shortcuts>(shortcuts);
+  const [isCustomizing, setIsCustomizing] = useState(false);
   const [listeningFor, setListeningFor] = useState<keyof Shortcuts | null>(null);
-
-  const logAudioStep = useCallback((step: string, payload?: Record<string, unknown>) => {
-    console.info(`[AudioPipeline][Room] ${step}`, payload || {});
-  }, []);
-
-  const logFeatureAudit = useCallback((feature: string, action: string, details?: Record<string, unknown>) => {
-    console.info(`[Audit][${feature}] ${action}`, details || {});
-  }, []);
-
-  // Permission calculations - usando função centralizada
-  const hasTextControl = textControllerUserIds.has(String(user?.id ?? ""));
-  const permissions = getUserPermissions(user, studioRole, hasTextControl, isDirector);
-  
-  // Extrair permissões individuais para compatibilidade com código existente
-  const { 
-    isPrivileged, 
-    isDubber,
-    canControlVideo, 
-    canTextControl, 
-    canManageAudio, 
-    canApproveTake, 
-    canViewOnlineUsers, 
-    canAccessDashboard,
-    canEditScript,
-    canGrantTextControl,
-    canNavigateScript,
-    canSelectLoop,
-    uiRole 
-  } = permissions;
-  
-  const isDubberView = isDubber;
-  const isDirectorView = !isDubberView;
-  
-  logger.debug("Permissions check", { 
-    studioRole, 
-    myId: user?.id, 
-    hasTextControl, 
-    isPrivileged,
-    canControlVideo,
-    canTextControl 
-  });
-
-  // Mobile detection
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  // Session access verification
-  const checkSessionAccess = useCallback(async () => {
-    if (!sessionId) return;
-    
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
+  const [deviceSettings, setDeviceSettings] = useState<DeviceSettings>(() => {
+    const defaults: DeviceSettings = { inputDeviceId: "", outputDeviceId: "", inputGain: 1, monitorVolume: 0.8, voiceCaptureMode: "original" };
     try {
-      const response = await authFetch(`/api/sessions/${sessionId}/status`);
-      if (!response.canAccess) {
-        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const scheduledAt = new Date(response.scheduledAt);
-        
-        // Converter para o fuso horário do usuário
-        const localScheduledAt = new Date(scheduledAt.toLocaleString("en-US", { timeZone: userTimezone }));
-        
-        setSessionAccessStatus({
-          canAccess: false,
-          scheduledAt: localScheduledAt,
-          minutesUntilStart: response.minutesUntilStart,
-          sessionTitle: response.sessionTitle,
-          hasSpecialAccess: response.hasSpecialAccess
-        });
-      } else {
-        setSessionAccessStatus({ canAccess: true });
-      }
-    } catch (err) {
-      logger.error('Failed to verify session access', { error: err });
-      // Se der erro, permitir acesso (fallback)
-      setSessionAccessStatus({ canAccess: true });
+      const saved = localStorage.getItem("vhub_device_settings");
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch {
+      return defaults;
     }
-  }, [sessionId]);
-
-  // Check session access on mount and periodically
-  useEffect(() => {
-    if (!sessionId) return;
-    
-    checkSessionAccess();
-    
-    // Verificar a cada 30 segundos se estiver bloqueado
-    const interval = setInterval(() => {
-      if (sessionAccessStatus?.canAccess === false) {
-        checkSessionAccess();
-      }
-    }, 30000);
-    
-    return () => clearInterval(interval);
-  }, [sessionId, checkSessionAccess, sessionAccessStatus?.canAccess]);
-
-  useEffect(() => {
-    return () => {
-      releaseMicrophone();
-      setMicState(null);
-      setMicReady(false);
-    };
-  }, []);
-
-  const applyScriptLinePatch = useCallback((lineIndex: number, patch: ScriptLineOverride) => {
-    if (!Number.isInteger(lineIndex) || lineIndex < 0) return;
-    setLineOverrides((prev) => {
-      const current = prev[lineIndex] || {};
-      return {
-        ...prev,
-        [lineIndex]: { ...current, ...patch },
-      };
-    });
-  }, []);
-
-  const pushEditHistory = useCallback((lineIndex: number, field: "character" | "text" | "timecode", before: string, after: string, by: string) => {
-    if (before === after) return;
-    const entry = {
-      id: `${lineIndex}_${field}_${Date.now()}`,
-      field,
-      before,
-      after,
-      at: new Date().toISOString(),
-      by,
-    };
-    setLineEditHistory((prev) => {
-      const list = prev[lineIndex] || [];
-      return {
-        ...prev,
-        [lineIndex]: [entry, ...list].slice(0, 25),
-      };
-    });
-  }, []);
-
-  // WebSocket message handler
-  const handleWebSocketMessage = useCallback((msg: any) => {
-    logger.debug("WS message received", { type: msg.type, data: msg });
-          if (msg.type === "text-control:state" || msg.type === "text-control:set-controllers") {
-            logger.debug("Text control update before state change", { currentControllers: Array.from(textControllerUserIds), myId: user?.id });
-          }
-          if (msg.type === "video:sync") {
-          const video = videoRef.current;
-          if (video) {
-            const diff = Math.abs(video.currentTime - msg.currentTime);
-            if (diff > 0.3) video.currentTime = msg.currentTime;
-            if (msg.isPlaying && video.paused) video.play().catch(() => {});
-            else if (!msg.isPlaying && !video.paused) video.pause();
-          }
-        } else if (msg.type === "video:play") {
-          const video = videoRef.current;
-          if (video) {
-            if (typeof msg.currentTime === "number" && Number.isFinite(msg.currentTime)) {
-              const drift = Math.abs(video.currentTime - msg.currentTime);
-              if (drift > 0.12) {
-                video.currentTime = msg.currentTime;
-              }
-            }
-            if (video.paused) {
-              video.play().catch((e) => logger.error("Failed to play video from WS", { error: e }));
-            } else {
-            }
-            // Enviar ACK de confirmação
-            emitVideoEvent("ack", { command: "play", userId: user?.id });
-          } else {
-            logger.warn("Video element not found");
-          }
-        } else if (msg.type === "video:pause") {
-          const video = videoRef.current;
-          if (video) {
-            if (typeof msg.currentTime === "number" && Number.isFinite(msg.currentTime)) {
-              video.currentTime = msg.currentTime;
-            }
-            if (!video.paused) video.pause();
-            // Enviar ACK de confirmação
-            emitVideoEvent("ack", { command: "pause", userId: user?.id });
-          }
-        } else if (msg.type === "text:lock-line") {
-          if (typeof msg.lineIndex === "number" && msg.userId) {
-            setLockedLines(prev => ({
-              ...prev,
-              [msg.lineIndex!]: { userId: msg.userId!, at: Date.now() }
-            }));
-          }
-        } else if (msg.type === "text:unlock-line") {
-          if (typeof msg.lineIndex === "number") {
-            setLockedLines(prev => {
-              const next = { ...prev };
-              delete next[msg.lineIndex!];
-              return next;
-            });
-          }
-        } else if (msg.type === "text:live-change") {
-          if (typeof msg.lineIndex === "number" && typeof msg.text === "string") {
-            setLiveDrafts(prev => ({
-              ...prev,
-              [msg.lineIndex!]: msg.text!
-            }));
-          }
-        } else if (msg.type === "video:seek") {
-          if (videoRef.current && typeof msg.currentTime === "number") {
-            videoRef.current.currentTime = msg.currentTime;
-          }
-        } else if (msg.type === "video:countdown" || msg.type === "video:countdown-start" || msg.type === "video:countdown-tick") {
-          setCountdownValue(msg.count);
-          if (msg.count > 0) {
-            try {
-              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-              if (audioContext.state !== "closed") {
-                playCountdownBeep(audioContext, { volume: 0.15 });
-              }
-            } catch (error) {
-              logger.warn("Failed to create AudioContext for countdown beep", { error });
-            }
-          } else if (msg.count === 0) {
-            try {
-              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-              if (audioContext.state !== "closed") {
-                playCountdownBeep(audioContext, { frequency: 660, duration: 0.18, volume: 0.10, type: "triangle" });
-              }
-            } catch (error) {
-              logger.warn("Failed to create AudioContext for countdown final beep", { error });
-            }
-          }
-        } else if (msg.type === "video:loop-preparing") {
-          setLoopPreparing(true);
-          const delayMs = Number(msg.delayMs || TIMING.LOOP_PREPARATION_MS);
-          window.setTimeout(() => setLoopPreparing(false), delayMs);
-        } else if (msg.type === "video:loop-silence-window") {
-          setLoopSilenceActive(true);
-          const delayMs = Number(msg.delayMs || 3000);
-          window.setTimeout(() => setLoopSilenceActive(false), delayMs);
-        } else if (msg.type === "video:sync-loop") {
-          if (msg.loopRange && typeof msg.loopRange.start === "number" && typeof msg.loopRange.end === "number") {
-            setCustomLoop({ start: msg.loopRange.start, end: msg.loopRange.end });
-            setIsLooping(true);
-          } else {
-            setCustomLoop(null);
-            setIsLooping(false);
-          }
-        } else if (msg.type === "text-control:update-line") {
-          const patch: ScriptLineOverride = {};
-          if (typeof msg.text === "string") patch.text = msg.text;
-          if (typeof msg.character === "string") patch.character = msg.character;
-          if (typeof msg.start === "number" && Number.isFinite(msg.start)) patch.start = msg.start;
-          applyScriptLinePatch(msg.lineIndex, patch);
-          if (msg.history && typeof msg.history === "object") {
-            pushEditHistory(
-              msg.lineIndex,
-              msg.history.field,
-              String(msg.history.before ?? ""),
-              String(msg.history.after ?? ""),
-              String(msg.history.by || "Usuário")
-            );
-          }
-        } else if (msg.type === "text-control:set-controllers" || msg.type === "text-control:state") {
-          const ids = Array.isArray(msg.targetUserIds) ? msg.targetUserIds : msg.controllerUserIds;
-          logger.debug("Text control state received", { type: msg.type, ids, myId: user?.id });
-          const nextSet = new Set(Array.from(new Set(ids || []))) as Set<string>;
-          setTextControllerUserIds(nextSet);
-          // Log immediately with the new state
-          logger.debug("After text-control update", { 
-            controllers: Array.from(nextSet), 
-            myId: user?.id,
-            hasPermission: nextSet.has(String(user?.id ?? "")),
-            studioRole,
-            willHaveTextControl: hasUiPermission(resolveUiRole(studioRole, nextSet.has(String(user?.id ?? ""))), "text_control")
-          });
-        } else if (msg.type === "presence:update" || msg.type === "presence-sync") {
-          // B1: Deduplicate by userId to prevent duplicates in TextControlPopup
-          const deduped = Array.isArray(msg.users)
-            ? Array.from(new Map(msg.users.map((u: any) => [String(u?.userId ?? u?.id ?? ""), u])).values())
-            : [];
-          setPresenceUsers(deduped);
-        } else if (msg.type === "video:take-ready-for-review") {
-          // Se sou diretor, abrir modal para revisão
-          if (isDirector && msg.takeId && msg.audioUrl) {
-            const reviewData = {
-              id: msg.takeId,
-              audioUrl: msg.audioUrl,
-              duration: msg.duration,
-              metrics: msg.metrics,
-              lineIndex: msg.lineIndex,
-              userId: msg.userId,
-              character: msg.character,
-              start: msg.start,
-              isPreview: msg.isPreview || false,
-              voiceActorId: msg.userId
-            };
-            setReviewingTake(reviewData);
-            setDirectorReviewModalOpen(true);
-            toast({ title: "Take para revisão", description: "Um novo take está pronto para sua aprovação." });
-          }
-        } else if (msg.type === "video:take-decision") {
-          // Se a decisão for sobre um take meu
-          if (msg.takeId === lastUploadedTakeId) {
-            setIsWaitingReview(false);
-            if (msg.decision === "approved") {
-              toast({ title: "Take Aprovado!", description: "O diretor aprovou seu take.", variant: "default" });
-              // Limpa estado local se ainda estiver pendente (embora upload já tenha ocorrido)
-              setPendingTake(null);
-              setRecordingStatus("idle");
-            } else {
-              toast({ title: "Take Rejeitado", description: "O diretor solicitou uma nova gravação.", variant: "destructive" });
-              // Mantém o estado para regravação rápida ou limpa? Vamos limpar para forçar nova gravação
-              setPendingTake(null);
-              setRecordingStatus("idle");
-            }
-          }
-          // Se eu sou o diretor que estava revisando, limpo meu estado
-          if (reviewingTake?.takeId === msg.takeId) {
-            setReviewingTake(null);
-          }
-        } else if (msg.type === "video:take-status") {
-          if (String(msg.targetUserId || "") !== String(user?.id || "")) return;
-          if (msg.status === "deleted") {
-            toast({ title: "Um take seu foi excluído pelo diretor", variant: "destructive" });
-          }
-        }
-  }, [logger, textControllerUserIds, user?.id, setCountdownValue, setLockedLines, setLiveDrafts, setLoopPreparing, setLoopSilenceActive, setCustomLoop, setIsLooping, applyScriptLinePatch, pushEditHistory, setTextControllerUserIds, studioRole, setPresenceUsers, isDirector, setReviewingTake, setDirectorReviewModalOpen, toast, lastUploadedTakeId, setIsWaitingReview, setPendingTake, setRecordingStatus, reviewingTake]);
-
-  // WebSocket connection using hook
-  const { isConnected: wsConnected, send: wsSend } = useWebSocketRoom({
-    sessionId: sessionId || "",
-    studioId: studioId || "",
-    userId: user?.id || "",
-    onMessage: handleWebSocketMessage,
-    enabled: Boolean(sessionId && studioId),
   });
 
-  const emitVideoEvent = useCallback((type: string, data: any) => {
-    wsSend({ type: `video:${type}`, ...data });
-  }, [wsSend]);
+  const [recordingProfile, setRecordingProfile] = useState<RecordingProfile | null>(() => {
+    if (!sessionId) return null;
+    try {
+      const saved = localStorage.getItem(`vhub_rec_profile_${sessionId}`);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!parsed.characterId || !isValidUuid.test(parsed.characterId)) {
+        localStorage.removeItem(`vhub_rec_profile_${sessionId}`);
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
 
-  const emitTextControlEvent = useCallback((type: string, data: any) => {
-    wsSend({ type, ...data });
-  }, [wsSend]);
+  const { data: session, isLoading: sessionLoading, isError: sessionError } = useSessionData(studioId, sessionId);
+  const { data: production, isLoading: productionLoading } = useProductionScript(studioId, session?.productionId);
+  const { data: charactersList } = useCharactersList(session?.productionId);
 
-  const handleCharacterChange = useCallback((character: any) => {
-    const updated = { 
-      ...recordingProfile, 
-      characterId: character.id, 
-      characterName: character.name,
-      actorName: recordingProfile?.actorName || "",
-      voiceActorId: user?.id || '',
-      voiceActorName: recordingProfile?.voiceActorName || "",
-    };
-    setRecordingProfile(updated);
-    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(updated));
-    emitVideoEvent("character-selected", { characterId: character.id, userId: user?.id });
-    logAudioStep("character-selected", { characterId: character.id, characterName: character.name });
-  }, [recordingProfile, sessionId, user?.id, emitVideoEvent, logAudioStep]);
-
-  // Cleanup loop selection on unmount
-  useEffect(() => {
-    return () => {
-      setLoopSelectionMode("idle");
-    };
-  }, []);
-
-  const baseScriptLines: ScriptLine[] = useMemo(() => {
+  const scriptLines: ScriptLine[] = (() => {
     if (!production?.scriptJson) return [];
     try {
       const parsed = JSON.parse(production.scriptJson);
@@ -755,1873 +768,908 @@ export default function RecordingRoom() {
       } else {
         return [];
       }
-      const toSeconds3 = (seconds: number) => Math.round(seconds * 1000) / 1000;
-      const normalized = rawLines.map((line: any) => {
-        const character = line.character || line.personagem || line.char || "";
-        const text = line.text || line.fala || line.dialogue || line.dialog || "";
-        if (typeof line.tempoEmSegundos === "number" && Number.isFinite(line.tempoEmSegundos)) {
-          return { character, start: toSeconds3(line.tempoEmSegundos), text };
-        }
-        const rawTime = line.tempo ?? line.start ?? line.timecode ?? line.tc ?? "00:00:00";
-        try {
-          return { character, start: toSeconds3(parseUniversalTimecodeToSeconds(rawTime, 24)), text };
-        } catch {
-          return { character, start: toSeconds3(parseTimecode(rawTime)), text };
-        }
-      });
-      const sorted = [...normalized].sort((a, b) => a.start - b.start);
+
+      const normalized = rawLines.map((line: any) => ({
+        character: line.character || line.personagem || line.char || "",
+        start: line.start || line.tempo || line.timecode || line.tc || "00:00:00",
+        text: line.text || line.fala || line.dialogue || line.dialog || "",
+      }));
+
+      const sorted = [...normalized]
+        .map((line) => ({ ...line, start: parseTimecode(line.start) }))
+        .sort((a, b) => a.start - b.start);
       return sorted.map((line, i) => ({
         ...line,
-        end: Math.max(sorted[i + 1]?.start ?? (line.start + 10), line.start + 0.001),
+        end: sorted[i + 1]?.start ?? line.start + 10,
       }));
     } catch (e) {
       console.error("[Room] Failed to parse scriptJson:", e);
       return [];
     }
-  }, [production?.scriptJson]);
+  })();
 
-  useEffect(() => {
-    setLineOverrides({});
-    setLineEditHistory({});
-    setEditingField(null);
-    setEditingDraftValue("");
-  }, [production?.id, production?.scriptJson]);
+  const { data: takesList = [], refetch: refetchTakes } = useQuery({
+    queryKey: ["/api/sessions", sessionId, "takes"],
+    queryFn: () => authFetch(`/api/sessions/${sessionId}/takes`),
+    enabled: !!sessionId,
+  });
 
-  const scriptLines: ScriptLine[] = useMemo(() => {
-    const merged = baseScriptLines.map((line, index) => {
-      const override = lineOverrides[index];
-      return {
-        character: override?.character ?? line.character,
-        text: override?.text ?? line.text,
-        start: typeof override?.start === "number" ? override.start : line.start,
-        end: line.end,
-      };
-    });
-    return merged.map((line, index) => {
-      const next = merged[index + 1];
-      return {
-        ...line,
-        end: Math.max(next?.start ?? (line.start + 10), line.start + 0.001),
-      };
-    });
-  }, [baseScriptLines, lineOverrides]);
+  const deleteTakeMutation = useMutation({
+    mutationFn: (takeId: string) =>
+      authFetch(`/api/takes/${takeId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      refetchTakes();
+      toast({ title: "Take excluido" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao excluir take", description: err?.message || "Permissao negada", variant: "destructive" });
+    },
+  });
 
-  const currentScriptLine = scriptLines[currentLine];
-  const formatLiveTimecode = useCallback((seconds: number) => {
-    return formatTimecodeByFormat(seconds, "HH:MM:SS", 24);
-  }, []);
+  const updateScriptLineMutation = useMutation({
+    mutationFn: async ({ lineIndex, text }: { lineIndex: number; text: string }) => {
+      if (!production?.id || !production?.scriptJson) throw new Error("Roteiro nao carregado");
+      const target = scriptLines[lineIndex];
+      if (!target) throw new Error("Linha invalida");
 
-  const displayedScriptLines = useMemo(() => {
-    return scriptLines
-      .map((line, originalIndex) => ({ ...line, originalIndex }))
-      .filter((line) => {
-        if (!onlySelectedCharacter) return true;
-        const selectedCharacter = recordingProfile?.characterName?.trim().toLowerCase();
-        if (!selectedCharacter) return true;
-        return line.character.trim().toLowerCase() === selectedCharacter;
+      const parsed = JSON.parse(production.scriptJson);
+      const rawLines: Array<any> = Array.isArray(parsed) ? parsed : (parsed?.lines && Array.isArray(parsed.lines) ? parsed.lines : []);
+      if (!rawLines.length) throw new Error("Formato de roteiro invalido");
+
+      const idx = rawLines.findIndex((l: any) => {
+        const st = parseTimecode(l.start || l.tempo || l.timecode || l.tc || "00:00:00");
+        const ch = String(l.character || l.personagem || l.char || "");
+        return st === target.start && ch.toLowerCase() === String(target.character || "").toLowerCase();
       });
-  }, [scriptLines, onlySelectedCharacter, recordingProfile?.characterName]);
+      const targetIdx = idx >= 0 ? idx : lineIndex;
+      if (!rawLines[targetIdx]) throw new Error("Linha nao encontrada no roteiro");
 
-  // Obter personagens únicos do script
-  const uniqueCharacters = useMemo(() => {
-    const characters = new Set<string>();
-    displayedScriptLines.forEach(line => {
-      if (line.character && line.character.trim()) {
-        characters.add(line.character.trim());
-      }
-    });
-    return Array.from(characters).sort();
-  }, [displayedScriptLines]);
-
-  // Filtrar linhas por personagem selecionado
-  const filteredScriptLines = useMemo(() => {
-    if (selectedCharacter === "todos") {
-      return displayedScriptLines;
-    }
-    return displayedScriptLines.filter(line => 
-      line.character && line.character.trim() === selectedCharacter
-    );
-  }, [displayedScriptLines, selectedCharacter]);
-
-  // Sincronização de rolagem com vídeo (teleprompter)
-  useEffect(() => {
-    if (!scriptViewportRef.current) return;
-
-    const currentLineElement = lineRefs.current[currentLine];
-    const viewport = scriptViewportRef.current;
-    
-    if (currentLineElement && viewport) {
-      // Calcular posição para centralizar a linha atual
-      const lineTop = currentLineElement.offsetTop;
-      const lineHeight = currentLineElement.offsetHeight;
-      const viewportHeight = viewport.clientHeight;
-      
-      // Posicionar a linha atual a 40% do topo da viewport (teleprompter style)
-      const targetScrollTop = lineTop - (viewportHeight * 0.4) + (lineHeight / 2);
-      
-      // Rolagem suave
-      viewport.scrollTo({
-        top: Math.max(0, targetScrollTop),
-        behavior: 'smooth'
-      });
-    }
-  }, [currentLine]);
-
-  // Fechar dropdown de takes ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (takesDropdownOpen) {
-        const target = event.target as Element;
-        if (!target.closest('.takes-dropdown')) {
-          setTakesDropdownOpen(false);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [takesDropdownOpen]);
-
-  const { data: takesList = [] } = useTakesList(sessionId);
-  const recordingsListParams = useMemo(() => ({
-    page: 1,
-    pageSize: 10,
-    sortBy: "createdAt" as const,
-    sortDir: "desc" as const,
-    search: "",
-  }), []);
-  const {
-    data: recordingsResponse,
-    error: recordingsError,
-    isError: hasRecordingsError,
-  } = useRecordingsList(sessionId, recordingsListParams);
-  const recordingsList = recordingsResponse?.items || [];
-  const normalizedRecordings = useMemo(() => {
-    return Array.isArray(recordingsList) ? recordingsList : [];
-  }, [recordingsList]);
-  const scopedRecordings = useMemo(() => {
-    if (!onlySelectedCharacter || !recordingProfile?.characterName) {
-      return normalizedRecordings;
-    }
-
-    const targetCharacter = recordingProfile.characterName.trim().toLowerCase();
-    if (!targetCharacter) {
-      return normalizedRecordings;
-    }
-
-    return normalizedRecordings.filter((take: any) => {
-      const character = String(take?.characterName || take?.character || "").trim().toLowerCase();
-      return character === targetCharacter;
-    });
-  }, [normalizedRecordings, onlySelectedCharacter, recordingProfile?.characterName]);
-
-  const savedTakes = useMemo(() => {
-    const s = new Set<number>();
-    takesList.forEach((t: any) => {
-      if (t.isDone || t.isPreferred) s.add(t.lineIndex);
-    });
-    return s;
-  }, [takesList]);
-  useEffect(() => {
-    if (!hasRecordingsError) return;
-    toast({ title: "Falha de conexão com o banco de áudio", description: String((recordingsError as any)?.message || "Não foi possível carregar os takes"), variant: "destructive" });
-  }, [hasRecordingsError, recordingsError, toast]);
-
-  const handleDiscardTake = useCallback(async (take: any) => {
-    const takeId = String(take.id);
-    const rawRole = String(user?.role || "").trim().toLowerCase();
-    const canDeletePermanently = rawRole === "owner" || rawRole === "master";
-    const takesQueryKey = ["/api/sessions", sessionId, "takes"] as const;
-    const recordingsQueryKey = ["/api/sessions", sessionId, "recordings"] as const;
-    const previousTakes = queryClient.getQueryData(takesQueryKey);
-    setOptimisticRemovingTakeIds((prev) => { const next = new Set(prev); next.add(takeId); return next; });
-    queryClient.setQueryData(takesQueryKey, (current: any) =>
-      Array.isArray(current) ? current.filter((item: any) => String(item?.id || "") !== takeId) : current
-    );
-    try {
-      await new Promise((resolve) => window.setTimeout(resolve, 260));
-      if (canDeletePermanently) {
-        await authFetch(`/api/takes/${takeId}`, { method: "DELETE" });
+      const updatedLine = { ...rawLines[targetIdx] };
+      if ("text" in updatedLine) {
+        updatedLine.text = text;
+      } else if ("fala" in updatedLine) {
+        updatedLine.fala = text;
       } else {
-        await authFetch(`/api/takes/${takeId}/discard`, {
-          method: "POST",
-          body: JSON.stringify({ confirm: true }),
+        updatedLine.text = text;
+      }
+
+      const nextLines = [...rawLines];
+      nextLines[targetIdx] = updatedLine;
+
+      const nextScriptJson = Array.isArray(parsed)
+        ? JSON.stringify(nextLines)
+        : JSON.stringify({ ...parsed, lines: nextLines });
+
+      return authFetch(`/api/studios/${studioId}/productions/${production.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ scriptJson: nextScriptJson }),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      setLineEdits((prev) => ({ ...prev, [variables.lineIndex]: variables.text }));
+      setEditingLineIndex(null);
+      setEditingLineText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/studios", studioId, "productions", production?.id] });
+      toast({ title: "Linha atualizada" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao salvar edicao", description: err?.message || "Falha", variant: "destructive" });
+    },
+  });
+
+  const handleDownloadTake = useCallback(async (take: any) => {
+    try {
+      const res = await fetch(`/api/takes/${take.id}/download`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Falha ao baixar take");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = take.filename || `take_${take.id}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch {
+      toast({ title: "Falha ao baixar take", variant: "destructive" });
+    }
+  }, [toast]);
+
+  const [savedTakes, setSavedTakes] = useState<Set<number>>(new Set());
+  const [takeCount, setTakeCount] = useState(0);
+  const [videoTime, setVideoTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+
+  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
+  const [countdownValue, setCountdownValue] = useState(0);
+  const [lastRecording, setLastRecording] = useState<RecordingResult | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [micState, setMicState] = useState<MicrophoneState | null>(null);
+  const [micReady, setMicReady] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const recordingStartTimecodeRef = useRef(0);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scriptViewportRef = useRef<HTMLDivElement | null>(null);
+  const telepromptRafRef = useRef<number | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const isRemoteAction = useRef(false);
+  const wsReconnectTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const [globalControlEnabled, setGlobalControlEnabled] = useState(false);
+  const [controlPermissions, setControlPermissions] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`vhub_control_perm_${sessionId}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [controlMenuOpen, setControlMenuOpen] = useState(false);
+  const [presenceUsers, setPresenceUsers] = useState<Array<{ userId: string; name: string; role?: string }>>([]);
+  const [takesPopupOpen, setTakesPopupOpen] = useState(false);
+  const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
+  const [editingLineText, setEditingLineText] = useState("");
+  const [lineEdits, setLineEdits] = useState<Record<number, string>>({});
+  const [takePreviewId, setTakePreviewId] = useState<string | null>(null);
+  const takePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const myStudioRole = useMemo(() => {
+    const role = session?.participants?.find((p: any) => p.userId === user?.id)?.role;
+    return String(role || "").toLowerCase();
+  }, [session, user]);
+
+  const isPrivileged = useMemo(() => {
+    if (user?.role === "platform_owner") return true;
+    const privilegedRoles = new Set([
+      "studio_admin",
+      "diretor",
+      "engenheiro_audio",
+      "owner",
+      "director",
+      "audio_engineer",
+      "engineer",
+      "admin",
+    ]);
+    return privilegedRoles.has(myStudioRole);
+  }, [user?.role, myStudioRole]);
+
+  const canControl = useMemo(() => {
+    return isPrivileged || globalControlEnabled || controlPermissions.has(user?.id || "");
+  }, [isPrivileged, globalControlEnabled, controlPermissions, user]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const state = await requestMicrophone(deviceSettings.voiceCaptureMode, deviceSettings.inputDeviceId);
+        setGain(state, deviceSettings.inputGain);
+        setMicState(state);
+        setMicReady(true);
+      } catch {
+        toast({
+          title: "Acesso ao microfone negado",
+          description: "Permita o acesso ao microfone para gravar takes.",
+          variant: "destructive",
         });
       }
-      await queryClient.invalidateQueries({ queryKey: takesQueryKey });
-      await queryClient.invalidateQueries({ queryKey: recordingsQueryKey, exact: false });
-      await logFeatureAudit("room.take", canDeletePermanently ? "deleted" : "discarded", { takeId });
-      toast({ title: canDeletePermanently ? "Take excluído permanentemente" : "Take descartado" });
-      setDiscardModalTake(null);
-      setDiscardFinalStep(false);
-    } catch (error: any) {
-      queryClient.setQueryData(takesQueryKey, previousTakes);
-      toast({ title: canDeletePermanently ? "Falha ao excluir take" : "Falha ao descartar take", description: error?.message || "Tente novamente", variant: "destructive" });
-    } finally {
-      setOptimisticRemovingTakeIds((prev) => { const next = new Set(prev); next.delete(takeId); return next; });
+    })();
+    return () => {
+      releaseMicrophone();
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (micState) {
+      setGain(micState, deviceSettings.inputGain);
     }
-  }, [queryClient, sessionId, toast, logFeatureAudit, user?.role]);
+  }, [micState, deviceSettings.inputGain]);
 
   useEffect(() => {
-    if (!scriptAutoFollow || !scriptViewportRef.current || isPlaying === false) return;
-    
-    const viewport = scriptViewportRef.current;
-    const scrollHeight = viewport.scrollHeight;
-    const clientHeight = viewport.clientHeight;
-    const maxScroll = scrollHeight - clientHeight;
-    
-    if (maxScroll <= 0 || videoDuration <= 0) return;
+    if (!sessionId || !user?.id) return;
 
-    // Teleprompter: Rolagem suave contínua baseada no tempo do vídeo e velocidade ajustável
-    const scrollPos = (videoTime / videoDuration) * maxScroll;
-    
-    viewport.scrollTo({
-      top: scrollPos,
-      behavior: "smooth"
-    });
-  }, [videoTime, videoDuration, scriptAutoFollow, isPlaying]);
+    let destroyed = false;
 
-  useEffect(() => {
-    const handleActivity = () => {
-      setControlsVisible(true);
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      controlsTimeoutRef.current = window.setTimeout(() => {
-        setControlsVisible(false);
-      }, 3000) as unknown as number;
-    };
+    const connect = () => {
+      if (destroyed) return;
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const role = encodeURIComponent(myStudioRole || String(user?.role || ""));
+      const name = encodeURIComponent(String((user as any)?.fullName || (user as any)?.displayName || (user as any)?.email || "Usuario"));
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/video-sync?sessionId=${sessionId}&userId=${encodeURIComponent(user.id)}&role=${role}&name=${name}`);
+      wsRef.current = ws;
 
-    window.addEventListener("mousemove", handleActivity);
-    window.addEventListener("mousedown", handleActivity);
-    window.addEventListener("touchstart", handleActivity);
-    return () => {
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("mousedown", handleActivity);
-      window.removeEventListener("touchstart", handleActivity);
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isDraggingVideoTextSplit || isMobile) return;
-    const handlePointerMove = (event: PointerEvent) => {
-      const container = desktopVideoTextContainerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const localY = event.clientY - rect.top;
-      const next = (localY / rect.height) * 100;
-      // Script height = 100 - next. Se scriptHeight <= 50%, então next >= 50%.
-      // Mínimo 30% para o daily.co, logo next <= 70%.
-      const constrained = Math.max(50, Math.min(70, next));
-      setDesktopVideoTextSplit(constrained);
-      localStorage.setItem("vhub_desktop_video_text_split", String(constrained));
-    };
-    const handlePointerUp = () => setIsDraggingVideoTextSplit(false);
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [isDraggingVideoTextSplit, isMobile]);
-
-  useEffect(() => {
-    if (!isDraggingSideScript || isMobile) return;
-    const handlePointerMove = (event: PointerEvent) => {
-      // Limites: 15% min, 50% max da largura da tela
-      const min = Math.max(300, window.innerWidth * 0.15);
-      const max = window.innerWidth * 0.5;
-      const nextWidth = window.innerWidth - event.clientX;
-      const constrained = Math.max(min, Math.min(max, nextWidth));
-      setSideScriptWidth(constrained);
-      localStorage.setItem("vhub_side_script_width", String(constrained));
-    };
-    const handlePointerUp = () => setIsDraggingSideScript(false);
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [isDraggingSideScript, isMobile]);
-
-  const [scriptFontSize, setScriptFontSize] = useState(16);
-
-  const changeScriptFontSize = useCallback((delta: number) => {
-    setScriptFontSize(prev => {
-      const next = prev + delta;
-      const constrained = Math.max(10, Math.min(36, next));
-      localStorage.setItem("vhub_script_font_size", String(constrained));
-      return constrained;
-    });
-  }, []);
-
-  const setScriptFontSizeExact = useCallback((size: number) => {
-    setScriptFontSize(size);
-    localStorage.setItem("vhub_script_font_size", String(size));
-  }, []);
-
-  const mySessionRole = useMemo(() => {
-    const source = Array.isArray(recordingsList) ? recordingsList : [];
-    return [...source].sort((a: any, b: any) => new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime());
-  }, [recordingsList]);
-  useEffect(() => {
-    setRecordingAvailability((prev) => {
-      const next: Record<string, RecordingAvailabilityState> = {};
-      scopedRecordings.forEach((take: any) => {
-        const id = String(take?.id || "");
-        if (!id) return;
-        next[id] = prev[id] || (take?.audioUrl || take?.id ? "available" : "error");
-      });
-      return next;
-    });
-  }, [scopedRecordings]);
-  useEffect(() => {
-    const currentId = String(recordingsPlayerOpenId || "");
-    if (!currentId) return;
-    const audio = recordingRowAudioRefs.current[currentId];
-    if (!audio) return;
-    audio.playbackRate = 1.0;
-  }, [recordingsPlayerOpenId]);
-  useEffect(() => {
-    return () => {
-      Object.values(cachedRecordingBlobUrlsRef.current).forEach((url) => {
+      ws.onmessage = (event) => {
         try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      });
-      cachedRecordingBlobUrlsRef.current = {};
-      
-      // Limpar o cache de mídia do navegador se necessário (opcional, dependendo da política de cache)
-      // caches.delete("vhub_audio_takes_v1");
-    };
-  }, []);
+          const msg = JSON.parse(event.data) as { type: string; currentTime?: number; lineIndex?: number; targetUserId?: string; permissions?: string[]; loopRange?: { start: number; end: number } | null; globalControl?: boolean; users?: Array<{ userId: string; name: string; role?: string }> };
 
-  const isApproverRole = useCallback((role: string | undefined | null) => {
-    if (!role) return false;
-    return hasUiPermission(resolveUiRole(role, false), "approve_take");
-  }, []);
-  const hasApproverPresent = useMemo(() => {
-    return presenceUsers.some((p: any) => isApproverRole(p?.role) && p?.userId !== user?.id);
-  }, [presenceUsers, isApproverRole, user?.id]);
-  const onlineRosterForCurrentRole = useMemo(() => {
-    if (!canViewOnlineUsers) return [];
-    const map = new Map<string, any>();
-    presenceUsers.forEach((presence) => {
-      if (!presence?.userId) return;
-      map.set(String(presence.userId), {
-        ...presence,
-        name: presence.displayName || presence.fullName || presence.name || presence.userId,
-      });
-    });
-    return Array.from(map.values());
-  }, [presenceUsers, canViewOnlineUsers]);
-  const textControlCandidates = useMemo(() => {
-    // Try to get candidates from presence users first (already deduped at source)
-    let candidates = presenceUsers.length > 0
-      ? presenceUsers.filter((presence: any) => canReceiveTextControl(presence?.role))
-      : [];
-    
-    // If no presence users, fall back to room users
-    if (candidates.length === 0 && roomUsers.length > 0) {
-      candidates = roomUsers.filter((u: any) => canReceiveTextControl(u?.role));
-    }
-    
-    // Extra safety dedup by userId
-    const seen = new Set<string>();
-    return candidates.filter((c: any) => {
-      const id = String(c?.userId ?? c?.id ?? "");
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-  }, [presenceUsers, roomUsers]);
+          // Permission updates
+          if (msg.type === "permission-sync" && Array.isArray(msg.permissions)) {
+            isRemoteAction.current = true;
+            setControlPermissions(new Set(msg.permissions));
+            if (typeof msg.globalControl === "boolean") setGlobalControlEnabled(msg.globalControl);
+            isRemoteAction.current = false;
+            return;
+          }
+          if (msg.type === "presence-sync" && Array.isArray(msg.users)) {
+            setPresenceUsers(msg.users);
+            return;
+          }
+          if (msg.type === "permission-granted" || msg.type === "grant-permission") {
+            if (msg.targetUserId) {
+              setControlPermissions((prev) => {
+                const next = new Set(prev);
+                next.add(msg.targetUserId!);
+                return next;
+              });
+            }
+          } else if (msg.type === "permission-revoked" || msg.type === "revoke-permission") {
+            if (msg.targetUserId) {
+              setControlPermissions((prev) => {
+                const next = new Set(prev);
+                next.delete(msg.targetUserId!);
+                return next;
+              });
+            }
+          }
 
-  const mobileMenuItems = useMemo(() => [
-    {
-      icon: <Monitor className="w-5 h-5" />,
-      iconBg: "bg-blue-500/10 text-blue-500",
-      title: "Configurar Áudio",
-      subtitle: "Microfone e saída",
-      onClick: () => { setDeviceSettingsOpen(true); setMobileMenuOpen(false); },
-    },
-    {
-      icon: <User className="w-5 h-5" />,
-      iconBg: "bg-purple-500/10 text-purple-500",
-      title: "Perfil de Gravação",
-      subtitle: "Ator & Personagem",
-      onClick: () => { setShowProfilePanel(true); setMobileMenuOpen(false); },
-    },
-    {
-      icon: <ListMusic className="w-5 h-5" />,
-      iconBg: "bg-emerald-500/10 text-emerald-400",
-      title: "Gravações",
-      subtitle: "Takes da Sessão",
-      onClick: () => { setRecordingsOpen(true); setMobileMenuOpen(false); },
-    },
-    {
-      icon: <Edit3 className="w-5 h-5" />,
-      iconBg: "bg-indigo-500/10 text-indigo-300",
-      title: "Permitir Controle",
-      subtitle: "Controle de texto e vídeo",
-      onClick: () => { setTextControlPopupOpen(true); setMobileMenuOpen(false); },
-      visible: canTextControl,
-    },
-    {
-      icon: <Settings className="w-5 h-5" />,
-      iconBg: "bg-amber-500/10 text-amber-300",
-      title: "Atalhos do Teclado",
-      subtitle: "Configurações rápidas",
-      onClick: () => { setIsCustomizing(true); setMobileMenuOpen(false); },
-      testId: "button-mobile-open-shortcuts",
-    },
-    {
-      icon: <Monitor className="w-5 h-5" />,
-      iconBg: "bg-sky-500/10 text-sky-300",
-      title: "Painel",
-      subtitle: "Voltar ao dashboard",
-      onClick: () => { logFeatureAudit("room.panel", "redirect", { studioId }); setMobileMenuOpen(false); },
-      href: `/hub-dub/studio/${studioId}/dashboard`,
-      testId: "button-mobile-room-panel",
-      visible: canAccessDashboard,
-    },
-    {
-      icon: <Video className="w-5 h-5" />,
-      iconBg: "bg-green-500/10 text-green-400",
-      title: "Vídeo & Voz",
-      subtitle: "Chat da equipe",
-      onClick: () => { setDailyMeetOpen(true); setMobileMenuOpen(false); },
-    },
-  ], [canTextControl, canAccessDashboard, studioId]);
+          if (msg.type === "sync-loop") {
+            setCustomLoop(msg.loopRange ?? null);
+            setIsLooping(!!msg.loopRange);
+            return;
+          }
 
-  const loopInfo = useMemo((): string | null => {
-    if (!customLoop && loopSelectionMode === "idle" && !loopPreparing && !loopSilenceActive) return null;
-    if (loopPreparing) return "Preparando loop... (3s)";
-    if (loopSilenceActive) return "Silêncio entre loops... (3s)";
-    if (loopSelectionMode === "selecting-start") return "Loop: selecione a primeira fala";
-    if (loopSelectionMode === "selecting-end") return "Loop: selecione a última fala";
-    if (customLoop) {
-      // Mostrar tempo da fala inicial (não do preroll)
-      const displayStart = loopRangeMeta && scriptLines[loopRangeMeta.startIndex] 
-        ? scriptLines[loopRangeMeta.startIndex].start 
-        : customLoop.start;
-      const range = loopRangeMeta ? ` · Linhas ${loopRangeMeta.startIndex + 1}-${loopRangeMeta.endIndex + 1}` : "";
-      return `Loop ativo ${formatLiveTimecode(displayStart)} - ${formatLiveTimecode(customLoop.end)}${range}`;
-    }
-    return null;
-  }, [customLoop, loopSelectionMode, loopPreparing, loopSilenceActive, loopRangeMeta, scriptLines, formatLiveTimecode]);
+          if (msg.type === "toggle-global-control") {
+            setGlobalControlEnabled(!!msg.globalControl);
+            if (msg.globalControl) {
+              toast({ title: "Controle Livre", description: "Todos os participantes podem agora controlar o player e o roteiro." });
+            } else {
+              toast({ title: "Controle Restrito", description: "O controle global foi desativado." });
+            }
+            return;
+          }
 
-  // Note: applyScriptLinePatch and pushEditHistory moved above to avoid hoisting issues
+          if (msg.type === "revoke-all") {
+            setControlPermissions(new Set());
+            setGlobalControlEnabled(false);
+            toast({ title: "Permissoes Revogadas", description: "Todas as permissoes temporarias foram removidas." });
+            return;
+          }
 
-  const rebuildScrollAnchors = useCallback(() => {
-    const viewport = scriptViewportRef.current;
-    if (!viewport || !scriptLines.length) return;
-    const lineOffsets: number[] = [];
-    const lineHeights: number[] = [];
-    const lineStarts: number[] = [];
-    for (let i = 0; i < scriptLines.length; i++) {
-      const el = lineRefs.current[i];
-      if (!el) continue;
-      lineOffsets.push(el.offsetTop);
-      lineHeights.push(el.offsetHeight || 1);
-      lineStarts.push(scriptLines[i].start);
-    }
-    scrollAnchorsRef.current = buildScrollAnchors({
-      lineStarts,
-      lineOffsets,
-      lineHeights,
-      viewportHeight: viewport.clientHeight,
-      maxScrollTop: viewport.scrollHeight - viewport.clientHeight,
-    });
-    scrollSyncCurrentRef.current = viewport.scrollTop;
-  }, [scriptLines]);
+          const video = videoRef.current;
+          if (!video) return;
 
-  useEffect(() => {
-    const viewport = scriptViewportRef.current;
-    if (!viewport) return;
-    rebuildScrollAnchors();
-    const onResize = () => rebuildScrollAnchors();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [rebuildScrollAnchors]);
+          isRemoteAction.current = true;
 
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(`vhub_script_follow_${sessionId}`, scriptAutoFollow ? "auto" : "manual");
-    } catch {}
-  }, [scriptAutoFollow, sessionId]);
+          if (msg.type === "video-seek" || msg.type === "video-play" || msg.type === "video-pause") {
+            if (typeof msg.currentTime === "number") video.currentTime = msg.currentTime;
+          }
 
-  const syncScrollToCurrentVideoTime = useCallback(() => {
-    const viewport = scriptViewportRef.current;
-    if (!viewport || !scrollAnchorsRef.current.length) return;
-    const t = videoRef.current?.currentTime ?? 0;
-    const target = interpolateScrollTop(scrollAnchorsRef.current, t);
-    scrollSyncCurrentRef.current = target;
-    viewport.scrollTop = target;
-  }, []);
+          if (msg.type === "video-play") {
+            video.play().catch(() => {});
+            setIsPlaying(true);
+          } else if (msg.type === "video-pause") {
+            video.pause();
+            setIsPlaying(false);
+          }
 
-  useEffect(() => {
-    const viewport = scriptViewportRef.current;
-    const video = videoRef.current;
-    if (!viewport || !video) return;
-    if (!scriptAutoFollow) return;
+          if (msg.type === "video-seek" && msg.lineIndex !== undefined) {
+            setCurrentLine(msg.lineIndex);
+          }
 
-    let mounted = true;
-    const tick = (ts: number) => {
-      if (!mounted) return;
-      const dt = scrollSyncLastTsRef.current === null ? 1 / 60 : (ts - scrollSyncLastTsRef.current) / 1000;
-      scrollSyncLastTsRef.current = ts;
-
-      const currentVideoTime = video.currentTime;
-      const previousVideoTime = scrollSyncLastVideoTimeRef.current;
-      const seeking = Math.abs(currentVideoTime - previousVideoTime) > 0.9;
-      scrollSyncLastVideoTimeRef.current = currentVideoTime;
-
-      const target = interpolateScrollTop(scrollAnchorsRef.current, currentVideoTime);
-      const maxSpeed = computeAdaptiveMaxSpeedPxPerSec({
-        contentHeight: viewport.scrollHeight,
-        viewportHeight: viewport.clientHeight,
-        videoDuration: videoDuration || video.duration || 0,
-        lineCount: scriptLines.length,
-        seeking,
-      });
-
-      const next = smoothScrollStep({
-        current: scrollSyncCurrentRef.current,
-        target,
-        dtSeconds: dt,
-        maxSpeedPxPerSec: maxSpeed,
-        response: video.paused ? 18 : 11,
-      });
-      scrollSyncCurrentRef.current = next;
-      viewport.scrollTop = next;
-      scrollSyncRafRef.current = window.requestAnimationFrame(tick);
-    };
-
-    scrollSyncRafRef.current = window.requestAnimationFrame(tick);
-    return () => {
-      mounted = false;
-      if (scrollSyncRafRef.current !== null) window.cancelAnimationFrame(scrollSyncRafRef.current);
-      scrollSyncRafRef.current = null;
-      scrollSyncLastTsRef.current = null;
-    };
-  }, [scriptAutoFollow, scriptLines.length, videoDuration]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onTimeUpdate = () => {
-      const time = video.currentTime;
-      setVideoTime(time);
-
-      const lineIndex = scriptLines.findIndex((l, i) => {
-        const nextStart = scriptLines[i + 1]?.start ?? Infinity;
-        return time >= l.start && time < nextStart;
-      });
-
-      if (lineIndex !== -1 && lineIndex !== currentLine) {
-        setCurrentLine(lineIndex);
-      }
-
-      if (isLooping && customLoop && !loopPreparing && !loopSilenceLockRef.current) {
-        const range = { start: Math.max(0, customLoop.start), end: Math.max(customLoop.start, customLoop.end) };
-        if (time >= range.end) {
-          loopSilenceLockRef.current = true;
-          setLoopSilenceActive(true);
-          video.pause();
-          emitVideoEvent("pause", { currentTime: video.currentTime });
-          emitVideoEvent("loop-silence-window", { start: range.start, end: range.end, delayMs: 3000 });
-          if (loopSilenceTimeoutRef.current) window.clearTimeout(loopSilenceTimeoutRef.current);
-          loopSilenceTimeoutRef.current = window.setTimeout(() => {
-            const node = videoRef.current;
-            if (!node) return;
-            // Restart 3s before the loop start for preroll
-            const restartAt = Math.max(0, range.start - 3);
-            node.currentTime = restartAt;
-            emitVideoEvent("seek", { currentTime: restartAt });
-            node.play().catch(() => {});
-            emitVideoEvent("play", { currentTime: restartAt });
-            setLoopSilenceActive(false);
-            loopSilenceLockRef.current = false;
-          }, 3000);
+          isRemoteAction.current = false;
+        } catch {
+          // ignore malformed messages
         }
-      }
+      };
+
+      ws.onclose = () => {
+        if (!destroyed) {
+          wsReconnectTimer.current = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
     };
 
-    const onDurationChange = () => setVideoDuration(video.duration);
+    connect();
 
-    video.addEventListener("timeupdate", onTimeUpdate);
-    video.addEventListener("durationchange", onDurationChange);
     return () => {
-      video.removeEventListener("timeupdate", onTimeUpdate);
-      video.removeEventListener("durationchange", onDurationChange);
+      destroyed = true;
+      if (wsReconnectTimer.current) clearTimeout(wsReconnectTimer.current);
+      wsRef.current?.close();
+      wsRef.current = null;
     };
-  }, [scriptLines, currentLine, isLooping, customLoop, emitVideoEvent, loopPreparing]);
+  }, [sessionId, user?.id, user?.role, myStudioRole, toast]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("vhub_device_settings", JSON.stringify(deviceSettings));
-    } catch {}
+    localStorage.setItem("vhub_device_settings", JSON.stringify(deviceSettings));
   }, [deviceSettings]);
 
   useEffect(() => {
-    const ua = navigator.userAgent.toLowerCase();
-    const mobileDetected = /iphone|ipad|ipod|android/.test(ua);
-    if (!mobileDetected) return;
-    if (deviceSettings.voiceCaptureMode !== "original") return;
-    setDeviceSettings((prev) => ({ ...prev, voiceCaptureMode: "high-fidelity" }));
-    toast({ title: "Modo lossless ativado", description: "Captura em alta fidelidade habilitada por padrão no dispositivo móvel." });
-  }, [deviceSettings.voiceCaptureMode, toast]);
-
-  useEffect(() => {
-    const targetSinkId = String(deviceSettings.outputDeviceId || "").trim() || "default";
-    const applySink = async () => {
-      const mediaTargets = [
-        previewAudioRef.current as HTMLMediaElement | null,
-        recordingsPreviewAudioRef.current as HTMLMediaElement | null,
-        videoRef.current as HTMLMediaElement | null,
-      ];
-      for (const media of mediaTargets) {
-        if (!media) continue;
-        const sinkCapable = media as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-        if (typeof sinkCapable.setSinkId !== "function") continue;
-        try {
-          await sinkCapable.setSinkId(targetSinkId);
-        } catch (error) {
-          logAudioStep("sink-apply-error", { message: String((error as any)?.message || error), outputDeviceId: targetSinkId });
-          toast({ title: "Saída de áudio não aplicada", description: "Seu navegador não permitiu selecionar este dispositivo de saída.", variant: "destructive" });
-          break;
-        }
-      }
-    };
-    void applySink();
-  }, [deviceSettings.outputDeviceId, logAudioStep, toast]);
-
-  // Reconectar microfone quando o dispositivo de entrada mudar
-  useEffect(() => {
-    if (!micReady || !deviceSettings.inputDeviceId) return;
-    
-    const reconnectMicrophone = async () => {
-      try {
-        // Liberar microfone atual
-        if (micState) {
-          await releaseMicrophone();
-          setMicState(null);
-        }
-        
-        // Reconectar com novo dispositivo
-        const newMicState = await requestMicrophone(
-          deviceSettings.voiceCaptureMode,
-          deviceSettings.inputDeviceId === "default" ? undefined : deviceSettings.inputDeviceId
-        );
-        
-        setMicState(newMicState);
-        setGain(newMicState, deviceSettings.inputGain);
-        
-        const deviceName = deviceSettings.inputDeviceId === "default" 
-          ? "Microfone padrão" 
-          : `Microfone ${deviceSettings.inputDeviceId.slice(0, 8)}`;
-        
-        toast({ 
-          title: "Microfone alterado", 
-          description: `${deviceName} está ativo` 
-        });
-      } catch (error) {
-        console.error("Erro ao reconectar microfone:", error);
-        toast({ 
-          title: "Erro ao alterar microfone", 
-          description: "Não foi possível conectar ao dispositivo selecionado",
-          variant: "destructive" 
-        });
-      }
-    };
-    
-    // Apenas reconectar se o dispositivo realmente mudou
-    if (micState) {
-      const currentTrack = micState.stream.getAudioTracks()[0];
-      const currentDeviceId = currentTrack?.getSettings()?.deviceId;
-      
-      if (deviceSettings.inputDeviceId === "default" && currentDeviceId !== deviceSettings.inputDeviceId) {
-        reconnectMicrophone();
-      } else if (deviceSettings.inputDeviceId !== "default" && currentDeviceId !== deviceSettings.inputDeviceId) {
-        reconnectMicrophone();
-      }
-    }
-  }, [deviceSettings.inputDeviceId, micReady, micState, deviceSettings.voiceCaptureMode, deviceSettings.inputGain, toast]);
-
-  // Aplicar ganho do microfone em tempo real
-  useEffect(() => {
-    if (!micState) return;
-    
     try {
-      setGain(micState, deviceSettings.inputGain);
-      console.log(`[Audio] Ganho aplicado: ${(deviceSettings.inputGain * 100).toFixed(0)}%`);
-    } catch (error) {
-      console.error("[Audio] Erro ao aplicar ganho:", error);
-    }
-  }, [deviceSettings.inputGain, micState]);
-
-  // Aplicar volume de monitor em tempo real
-  useEffect(() => {
-    const mediaElements = [
-      videoRef.current,
-      previewAudioRef.current,
-      recordingsPreviewAudioRef.current
-    ].filter(Boolean) as HTMLMediaElement[];
-    
-    mediaElements.forEach(media => {
-      if (media) {
-        media.volume = deviceSettings.monitorVolume;
-        console.log(`[Audio] Volume de monitor aplicado: ${(deviceSettings.monitorVolume * 100).toFixed(0)}% para ${media.tagName.toLowerCase()}`);
-      }
-    });
-  }, [deviceSettings.monitorVolume]);
-
-  useEffect(() => {
-    return () => {
-      if (countdownTimerRef.current) {
-        window.clearInterval(countdownTimerRef.current);
-        countdownTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const pendingUploadStorageKey = `vhub_pending_takes_${sessionId}`;
-
-  const blobToBase64 = useCallback(async (blob: Blob) => {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("Falha ao converter áudio para cache local"));
-      reader.readAsDataURL(blob);
-    });
-  }, []);
-
-  const dataUrlToBlob = useCallback((dataUrl: string) => {
-    const [meta, base64] = String(dataUrl || "").split(",");
-    const match = /data:(.*?);base64/.exec(meta || "");
-    const mime = match?.[1] || "audio/wav";
-    const binary = atob(base64 || "");
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return new Blob([bytes], { type: mime });
-  }, []);
-
-  const enqueuePendingUpload = useCallback(async (input: {
-    dataUrl: string;
-    characterId: string;
-    voiceActorId: string;
-    lineIndex: number;
-    durationSeconds: number;
-    startTimeSeconds: number;
-    qualityScore: number | null;
-    isPreferred: boolean;
-  }) => {
-    try {
-      const existingRaw = localStorage.getItem(pendingUploadStorageKey);
-      const existing = existingRaw ? JSON.parse(existingRaw) : [];
-      const next = [input, ...existing].slice(0, 20);
-      localStorage.setItem(pendingUploadStorageKey, JSON.stringify(next));
-    } catch {}
-  }, [pendingUploadStorageKey]);
-
-  const flushPendingUploads = useCallback(async () => {
-    let pending: any[] = [];
-    try {
-      const raw = localStorage.getItem(pendingUploadStorageKey);
-      pending = raw ? JSON.parse(raw) : [];
+      localStorage.setItem(`vhub_control_perm_${sessionId}`, JSON.stringify(Array.from(controlPermissions)));
     } catch {
-      pending = [];
+      // ignore storage errors
     }
-    if (!pending.length) return;
-    const stillPending: any[] = [];
-    for (const item of pending) {
-      try {
-        const formData = new FormData();
-        formData.append("audio", dataUrlToBlob(item.dataUrl), `take_retry_${sessionId}_${Date.now()}.wav`);
-        formData.append("characterId", String(item.characterId));
-        formData.append("voiceActorId", String(item.voiceActorId));
-        formData.append("lineIndex", String(item.lineIndex));
-        formData.append("durationSeconds", String(item.durationSeconds));
-        formData.append("startTimeSeconds", String(item.startTimeSeconds));
-        formData.append("isPreferred", String(Boolean(item.isPreferred)));
-        if (item.qualityScore !== null && item.qualityScore !== undefined) {
-          formData.append("qualityScore", String(item.qualityScore));
-        }
-        await authFetch(`/api/sessions/${sessionId}/takes`, { method: "POST", body: formData });
-      } catch {
-        stillPending.push(item);
-      }
-    }
-    try {
-      localStorage.setItem(pendingUploadStorageKey, JSON.stringify(stillPending));
-    } catch {}
-    await queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "recordings"] });
-  }, [pendingUploadStorageKey, dataUrlToBlob, sessionId, queryClient]);
+  }, [controlPermissions, sessionId]);
+
+  const prevSettingsRef = useRef({ mode: deviceSettings.voiceCaptureMode, deviceId: deviceSettings.inputDeviceId });
 
   useEffect(() => {
-    flushPendingUploads().catch(() => {});
-    const onOnline = () => { flushPendingUploads().catch(() => {}); };
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, [flushPendingUploads]);
+    const { voiceCaptureMode, inputDeviceId } = deviceSettings;
+    const prev = prevSettingsRef.current;
 
-  const uploadTakeForDirector = useCallback(async (input: {
-    wavBlob: Blob;
-    durationSeconds: number;
-    qualityScore: number | null;
-    autoApprove: boolean;
-    lineIndex: number;
-    startTimeSeconds: number;
-  }) => {
-    // Use configured profile or fall back to minimal user data so upload never hard-fails
-    const effectiveProfile = recordingProfile ?? {
-      actorName: user?.displayName || user?.fullName || "Ator",
-      characterId: "",
-      characterName: "Sem Personagem",
-      voiceActorId: user?.id || "",
-      voiceActorName: user?.displayName || user?.fullName || "Ator",
-    };
-    logAudioStep("upload-started", { lineIndex: input.lineIndex, durationSeconds: input.durationSeconds, autoApprove: input.autoApprove });
-    const lineText = scriptLines[input.lineIndex]?.text || "";
-    const charName = (effectiveProfile.characterName || "personagem").replace(/\s+/g, "").toUpperCase();
-    const actorFullName = (effectiveProfile.actorName || effectiveProfile.voiceActorName || "ator").replace(/\s+/g, "").toUpperCase();
-    const videoSecs = Math.round(input.startTimeSeconds);
-    const hh = String(Math.floor(videoSecs / 3600)).padStart(2, "0");
-    const mm = String(Math.floor((videoSecs % 3600) / 60)).padStart(2, "0");
-    const ss = String(videoSecs % 60).padStart(2, "0");
-    const filename = `${charName}_${actorFullName}_${hh}${mm}${ss}.wav`;
-    const formData = new FormData();
-    formData.append("audio", input.wavBlob, filename);
-    formData.append("lineText", lineText.slice(0, 200));
-    formData.append("characterId", effectiveProfile.characterId);
-    formData.append("voiceActorId", user?.id || effectiveProfile.voiceActorId || "");
-    formData.append("voiceActorName", effectiveProfile.actorName || effectiveProfile.voiceActorName || "");
-    formData.append("lineIndex", String(input.lineIndex));
-    formData.append("durationSeconds", String(input.durationSeconds));
-    formData.append("startTimeSeconds", String(input.startTimeSeconds));
-    if (input.qualityScore !== null && input.qualityScore !== undefined) {
-      formData.append("qualityScore", String(input.qualityScore));
-    }
-    formData.append("isPreferred", String(input.autoApprove));
-    const take = await authFetch(`/api/sessions/${sessionId}/takes`, {
-      method: "POST",
-      body: formData,
-    });
-    if (!take?.id || !take?.audioUrl) {
-      throw new Error("Persistência inválida: resposta de take incompleta.");
-    }
-    setLastUploadedTakeId(take.id);
-    logAudioStep("upload-created", { takeId: take.id, audioUrl: take.audioUrl, lineIndex: input.lineIndex });
-    // Invalidate and immediately refetch both takes and recordings queries
-    await queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"], exact: false });
-    await queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "recordings"], exact: false });
-    // Force immediate refetch of recordings to show the new take in the director's tab
-    await queryClient.refetchQueries({ queryKey: ["/api/sessions", sessionId, "recordings"], exact: false, type: "active" });
-    logAudioStep("upload-integrity-check", { takeId: take.id, persisted: true });
-    setRecordingAvailability((prev) => ({ ...prev, [String(take.id || "")]: "available" }));
-    return take;
-  }, [recordingProfile, sessionId, scriptLines, user?.id, user?.displayName, user?.fullName, queryClient, logAudioStep]);
+    if (voiceCaptureMode === prev.mode && inputDeviceId === prev.deviceId) return;
 
-  const initializeRecordingMicrophone = useCallback(async (): Promise<MicrophoneState | null> => {
-    if (micState) return micState;
-    if (micInitializing) {
-      console.warn("[Recording] Já existe uma inicialização em andamento, aguardando...");
-      return null;
-    }
+    prevSettingsRef.current = { mode: voiceCaptureMode, deviceId: inputDeviceId };
 
-    setMicInitializing(true);
-    try {
-      console.log("[Recording] Inicializando microfone...");
-      const nextMicState = await requestMicrophone(
-        deviceSettings.voiceCaptureMode,
-        deviceSettings.inputDeviceId === "default" ? undefined : deviceSettings.inputDeviceId
-      );
-      setMicState(nextMicState);
-      setGain(nextMicState, deviceSettings.inputGain);
-      setMicReady(true);
-      console.log("[Recording] Microfone inicializado com sucesso");
-      return nextMicState;
-    } catch (error: any) {
-      console.error("[Recording] Falha ao inicializar microfone sob demanda:", {
-        name: error?.name,
-        message: error?.message,
-        constraintName: error?.constraint,
-        deviceId: deviceSettings.inputDeviceId,
-        mode: deviceSettings.voiceCaptureMode,
-      });
-      setMicState(null);
-      setMicReady(false);
-      
-      let errorDescription = error?.message || "Permita o acesso ao microfone e tente novamente.";
-      
-      // Se já for uma mensagem personalizada, use-a
-      if (error?.message?.includes('Permissão de microfone negada')) {
-        errorDescription = error.message;
-      } else if (error?.name === 'NotAllowedError') {
-        errorDescription = "Clique no ícone de cadeado na barra de endereço e permita o acesso ao microfone.";
-      } else if (error?.name === 'NotFoundError') {
-        errorDescription = "Nenhum microfone encontrado. Conecte um dispositivo de áudio.";
-      } else if (error?.name === 'NotReadableError') {
-        errorDescription = "Microfone já está em uso por outro aplicativo.";
-      } else if (error?.name === 'OverconstrainedError') {
-        errorDescription = "O microfone selecionado não suporta as configurações solicitadas.";
-      }
-      
-      toast({
-        title: "Microfone não pronto",
-        description: errorDescription,
-        variant: "destructive",
-      });
-      return null;
-    } finally {
-      setMicInitializing(false);
-    }
-  }, [deviceSettings.inputDeviceId, deviceSettings.inputGain, deviceSettings.voiceCaptureMode, micState, micInitializing, toast]);
+    if (recordingStatus === "recording") return;
 
-  const startCountdown = useCallback(async () => {
-    if (recordingStatus === "recording" || recordingStatus === "countdown") {
-      toast({ title: "Gravação em andamento", description: "Pare a gravação atual antes de iniciar outra.", variant: "destructive" });
-      return;
-    }
-
-    if (recordingStatus === "recorded" || recordingStatus === "stopped") {
-      if (pendingTake?.url) URL.revokeObjectURL(pendingTake.url);
-      setPendingTake(null);
-      setReviewingTake(null);
-      setDirectorReviewModalOpen(false);
-      setRecordingStatus("idle");
-    }
-    
-    const activeMicState = micState ?? await initializeRecordingMicrophone();
-    if (!activeMicState) return;
-    
-    // Permitir gravação mesmo sem personagem selecionado
-    if (!recordingProfile) {
-      toast({ title: "Nenhum personagem selecionado", description: "Gravando como 'Sem Personagem'.", variant: "default" });
-    }
-    
-    const video = videoRef.current;
-    if (!video) {
-      toast({ title: "Erro de reprodução", description: "Elemento de vídeo não encontrado.", variant: "destructive" });
-      return;
-    }
-    
-    const currentLineTime = scriptLines[currentLine]?.start || 0;
-    const prerollStart = Math.max(0, currentLineTime - THRESHOLDS.VIDEO_PREROLL_S);
-    
-    video.currentTime = prerollStart;
-    emitVideoEvent("seek", { currentTime: prerollStart });
-    logAudioStep("countdown-started", { initiatorUserId: user?.id, startTime: prerollStart, lineTime: currentLineTime });
-    
-    // Start UI countdown and play video
-    setCountdownValue(3);
-    setRecordingStatus("countdown");
-    
-    video.play().catch((error) => {
-      logger.error("Failed to play video", { error });
-      toast({ title: "Erro na reprodução", description: "Não foi possível reproduzir o vídeo.", variant: "destructive" });
-    });
-    
-    emitVideoEvent("play", { currentTime: prerollStart });
-    emitVideoEvent("countdown-start", { initiatorUserId: user?.id, count: 3 });
-    
-    if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
-    let count = 3;
-    
-    countdownTimerRef.current = window.setInterval(() => {
-      count -= 1;
-      const nextCount = Math.max(0, count);
-      setCountdownValue(nextCount);
-      emitVideoEvent("countdown-tick", { count: nextCount, initiatorUserId: user?.id });
-      
-      if (nextCount === 0) {
-        window.clearInterval(countdownTimerRef.current!);
-        countdownTimerRef.current = null;
-        if (activeMicState) {
-          startCapture(activeMicState).then(() => setRecordingStatus("recording"));
-        } else {
-          logger.warn("Starting recording without micState");
-          setRecordingStatus("idle");
-        }
-      }
-    }, TIMING.COUNTDOWN_BEEP_INTERVAL_MS);
-  }, [recordingStatus, micState, pendingTake, initializeRecordingMicrophone, emitVideoEvent, logAudioStep, user?.id, recordingProfile, currentLine, scriptLines, mySessionRole, toast]);
-
-  const handleDirectorApprove = useCallback(async () => {
-    if (!reviewingTake) return;
-    const takeId = reviewingTake.takeId;
-    // Close popup immediately — server responds fast now (Supabase upload is background)
-    setReviewingTake(null);
-    try {
-      setIsDirectorSaving(true);
-      await authFetch(`/api/takes/${takeId}/prefer`, { method: "POST" });
-      emitVideoEvent("take-decision", { takeId, decision: "approved", userId: user?.id });
-      toast({ title: "Take Aprovado", description: "O dublador foi notificado." });
-    } catch (err) {
-      toast({ title: "Erro ao aprovar", variant: "destructive" });
-    } finally {
-      setIsDirectorSaving(false);
-    }
-  }, [reviewingTake, emitVideoEvent, user?.id, toast]);
-
-  const formatDurationLabel = useCallback((seconds: number) => {
-    const s = Math.max(0, Math.floor(seconds));
-    const m = Math.floor(s / 60);
-    const sec = String(s % 60).padStart(2, "0");
-    return m > 0 ? `${m}m ${sec}s` : `${s}s`;
-  }, []);
-
-  const handleDirectorReject = useCallback(async () => {
-    if (!reviewingTake) return;
-    const takeId = reviewingTake.takeId;
-    // Close popup immediately
-    setReviewingTake(null);
-    try {
-      setIsDirectorSaving(true);
-      await authFetch(`/api/takes/${takeId}/discard`, {
-        method: "POST",
-        body: JSON.stringify({ confirm: true }),
-      });
-      emitVideoEvent("take-decision", { takeId, decision: "rejected", userId: user?.id });
-      toast({ title: "Take Rejeitado", description: "O dublador foi notificado para regravar." });
-    } catch (err) {
-      toast({ title: "Erro ao rejeitar", variant: "destructive" });
-    } finally {
-      setIsDirectorSaving(false);
-    }
-  }, [reviewingTake, emitVideoEvent, user?.id, toast]);
-
-  const handleStopRecording = useCallback(async () => {
-    console.log("[StopRecording] Iniciando parada", { recordingStatus, micState: !!micState, micStateType: typeof micState });
-    
-    // Ser mais permissivo - permitir parada em mais estados para evitar travamento
-    const validStates = ["recording", "countdown", "stopping"];
-    if (!validStates.includes(recordingStatus)) {
-      console.warn("[StopRecording] Estado não ideal para parar, mas permitindo", { recordingStatus, validStates });
-      // Não return - permitir mesmo em estados não ideais para evitar travamento
-    }
-    
-    if (!micState) {
-      console.error("[StopRecording] micState não disponível - isso pode causar problemas", { micState });
-      // Tentar continuar mesmo sem micState para não travar o botão
-      console.log("[StopRecording] Tentando parar mesmo sem micState...");
-    } else {
-      console.log("[StopRecording] micState disponível, prosseguindo normalmente");
-    }
-    
-    // Mudar para estado de transição imediatamente
-    console.log("[StopRecording] Mudando para estado 'stopping'");
-    setRecordingStatus("stopping");
-    
-    console.log("[StopRecording] Limpando timers...");
-    if (countdownTimerRef.current) {
-      window.clearInterval(countdownTimerRef.current);
-      countdownTimerRef.current = null;
-    }
-    const pendingCapture = (countdownTimerRef as any)._captureTimeout;
-    if (pendingCapture) {
-      window.clearTimeout(pendingCapture);
-      (countdownTimerRef as any)._captureTimeout = null;
-    }
-    setCountdownValue(0);
-    
-    console.log("[StopRecording] Chamando stopCapture...");
-    logAudioStep("stop-requested", { state: micState });
-    
-    try {
-      // Só chamar stopCapture se micState estiver disponível
-      if (!micState) {
-        console.warn("[StopRecording] Sem micState, limpando estado e saindo");
-        setRecordingStatus("idle");
-        return;
-      }
-
-      const result = await stopCapture(micState);
-      console.log("[StopRecording] stopCapture retornou", { samplesLength: result.samples.length, duration: result.durationSeconds });
-      
-      if (!result.samples.length) {
-        toast({ title: "Sem áudio capturado", description: "Nenhum sample foi registrado. Verifique microfone e ganho.", variant: "destructive" });
-        setRecordingStatus("idle");
-        logAudioStep("stop-empty-buffer");
-        return;
-      }
-      
-      if (videoRef.current) {
-        videoRef.current.pause();
-        emitVideoEvent("pause", { currentTime: videoRef.current.currentTime });
-      }
-
-      const metrics = analyzeTakeQuality(result.samples);
-      logAudioStep("quality-analyzed", { score: metrics.score, clipping: metrics.clipping, loudness: metrics.loudness, noiseFloor: metrics.noiseFloor, sampleRate: result.sampleRate });
-      
-      if (isLooping && customLoop) {
-        const expectedDuration = customLoop.end - Math.max(0, customLoop.start - 3);
-        if (result.durationSeconds + 0.15 < expectedDuration) {
-          toast({ title: "Loop incompleto", description: "A última fala do loop não foi gravada por completo.", variant: "destructive" });
-          setRecordingStatus("idle");
-          return;
-        }
-      }
-
-      // Gerar blob local para preview imediato do dublador
-      const wavBuffer = encodeWav(result.samples);
-      const wavBlob = wavToBlob(wavBuffer);
-      const objectUrl = URL.createObjectURL(wavBlob);
-
-      const localTakeData = {
-        samples: result.samples,
-        durationSeconds: result.durationSeconds,
-        sampleRate: result.sampleRate,
-        metrics,
-        blob: wavBlob,
-        url: objectUrl,
-        lineIndex: currentLine,
-        startTimeSeconds: Number(videoRef.current?.currentTime || 0),
-      };
-
-      setPendingTake(localTakeData);
-      setRecordingStatus("recorded");
-
-      // Notificar diretor que há um take para revisão (sem upload automático)
-      emitVideoEvent("take-ready-for-review", { 
-        takeId: localTakeData.id, 
-        audioUrl: localTakeData.url, 
-        duration: result.durationSeconds, 
-        metrics, 
-        lineIndex: currentLine, 
-        userId: user?.id, 
-        character: recordingProfile?.characterName || "Personagem", 
-        start: Number(videoRef.current?.currentTime || 0),
-        isPreview: true // Indica que é preview local
-      });
-      
-      toast({ title: "Gravação concluída", description: "Take enviado para aprovação do diretor." });
-    } catch (error: any) {
-      console.error("[StopRecording] Erro ao parar gravação:", error);
-      toast({ 
-        title: "Erro ao parar gravação", 
-        description: error?.message || "Ocorreu um erro ao processar a gravação.", 
-        variant: "destructive" 
-      });
-      // Garantir que sempre volte para idle em caso de erro
-      setRecordingStatus("idle");
-    }
-  }, [recordingStatus, micState, emitVideoEvent, logAudioStep, toast, isLooping, customLoop, currentLine, uploadTakeForDirector, user?.id, recordingProfile, pendingTake]);
-
-  const handleApproveLocalTake = useCallback(async (take: any) => {
-    if (!take) return;
-    
-    try {
-      setIsDirectorSaving(true);
-      
-      // Fazer upload para Supabase
-      const uploadedTake = await uploadTakeForDirector({ 
-        wavBlob: take.blob, 
-        durationSeconds: take.durationSeconds, 
-        qualityScore: take.metrics.score, 
-        autoApprove: true, 
-        lineIndex: take.lineIndex, 
-        startTimeSeconds: take.startTimeSeconds 
-      });
-
-      // Notificar todos que o take foi aprovado
-      emitVideoEvent("take-decision", { 
-        takeId: take.id, 
-        decision: "approved", 
-        userId: user?.id,
-        finalTakeId: uploadedTake.id
-      });
-
-      // Limpar preview local
-      if (take.url) URL.revokeObjectURL(take.url);
-      setPendingTake(null);
-      setReviewingTake(null);
-      
-      toast({ title: "Take Aprovado!", description: "Áudio salvo no Supabase e adicionado à lista de takes." });
-    } catch (error: any) {
-      console.error("Failed to approve take:", error);
-      toast({ title: "Erro ao aprovar", description: "Falha ao salvar take no Supabase.", variant: "destructive" });
-    } finally {
-      setIsDirectorSaving(false);
-    }
-  }, [uploadTakeForDirector, emitVideoEvent, user?.id, toast]);
-
-  const handleRejectLocalTake = useCallback(async (take: any) => {
-    if (!take) return;
-    
-    try {
-      // Notificar dublador que o take foi rejeitado
-      emitVideoEvent("take-decision", { 
-        takeId: take.id, 
-        decision: "rejected", 
-        userId: user?.id,
-        targetUserId: take.voiceActorId
-      });
-
-      // Apagar preview local
-      if (take.url) URL.revokeObjectURL(take.url);
-      setPendingTake(null);
-      setReviewingTake(null);
-      
-      toast({ title: "Take Rejeitado", description: "Áudio descartado. Solicitando nova gravação." });
-    } catch (error: any) {
-      console.error("Failed to reject take:", error);
-      toast({ title: "Erro ao rejeitar", description: "Falha ao processar rejeição.", variant: "destructive" });
-    }
-  }, [emitVideoEvent, user?.id, toast]);
-
-  const handleApproveTake = useCallback(async () => {
-    if (!pendingTake) return;
-    try {
-      setIsSaving(true);
-      const startedAt = performance.now();
-      await uploadTakeForDirector({ wavBlob: pendingTake.blob, durationSeconds: pendingTake.durationSeconds, qualityScore: pendingTake.metrics.score, autoApprove: true, lineIndex: pendingTake.lineIndex, startTimeSeconds: pendingTake.startTimeSeconds });
-      const elapsedMs = performance.now() - startedAt;
-      if (elapsedMs > 3000) {
-        toast({ title: "Salvamento acima da meta", description: `${Math.round(elapsedMs)}ms`, variant: "destructive" });
-      }
-      toast({ title: "Take gravado com sucesso" });
-      await logFeatureAudit("room.take", "auto_saved", { lineIndex: pendingTake.lineIndex });
-      
-      // Cleanup
-      URL.revokeObjectURL(pendingTake.url);
-      setPendingTake(null);
-      setRecordingStatus("idle");
-    } catch (err: any) {
-      logAudioStep("upload-error", { message: String(err?.message || err) });
+    (async () => {
       try {
-        await enqueuePendingUpload({ dataUrl: await blobToBase64(pendingTake.blob), characterId: recordingProfile?.characterId || "", voiceActorId: user?.id || recordingProfile?.voiceActorId || "", lineIndex: pendingTake.lineIndex, durationSeconds: pendingTake.durationSeconds, startTimeSeconds: pendingTake.startTimeSeconds, qualityScore: pendingTake.metrics.score, isPreferred: !hasApproverPresent && !isPrivileged });
-        toast({ title: "Sem conexão. Take salvo no cache local para reenvio automático.", variant: "destructive" });
+        const state = await requestMicrophone(voiceCaptureMode, inputDeviceId);
+        setGain(state, deviceSettings.inputGain);
+        setMicState(state);
+        setMicReady(true);
         
-        URL.revokeObjectURL(pendingTake.url);
-        setPendingTake(null);
-        setRecordingStatus("idle");
-      } catch {}
-      toast({ title: "Erro ao enviar take", description: String(err?.message || err), variant: "destructive" });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [pendingTake, uploadTakeForDirector, toast, logFeatureAudit, enqueuePendingUpload, blobToBase64, recordingProfile, user?.id, hasApproverPresent, isPrivileged, logAudioStep]);
-
-  const handlePlayPause = useCallback(() => {
-    if (!canControlVideo) return;
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      if (isLooping && customLoop) {
-        // Play 2 seconds before the loop start timecode (preroll)
-        const loopPrerollSeconds = 2;
-        const loopStart = Math.max(0, customLoop.start - loopPrerollSeconds);
-        video.pause();
-        video.currentTime = loopStart;
-        emitVideoEvent("seek", { currentTime: loopStart });
-        if (loopPreparationTimeoutRef.current) window.clearTimeout(loopPreparationTimeoutRef.current);
-        setLoopPreparing(true);
-        emitVideoEvent("loop-preparing", { loopStart, delayMs: 3000 });
-        loopPreparationTimeoutRef.current = window.setTimeout(() => {
-          const node = videoRef.current;
-          if (!node) return;
-          node.currentTime = loopStart;
-          emitVideoEvent("seek", { currentTime: loopStart });
-          node.play().catch(() => {});
-          emitVideoEvent("play", { currentTime: loopStart });
-          setLoopPreparing(false);
-        }, 3000);
-        return;
-      }
-      video.play().catch(() => {});
-      emitVideoEvent("play", { currentTime: video.currentTime });
-    } else {
-      video.pause();
-      emitVideoEvent("pause", { currentTime: video.currentTime });
-    }
-  }, [canControlVideo, emitVideoEvent, isLooping, customLoop]);
-
-  const handleStopPlayback = useCallback(() => {
-    if (!canControlVideo) return;
-    const video = videoRef.current;
-    if (!video) return;
-    video.pause();
-    video.currentTime = currentScriptLine?.start || 0;
-    emitVideoEvent("pause", { currentTime: video.currentTime });
-  }, [canControlVideo, currentScriptLine, emitVideoEvent]);
-
-  const seek = useCallback((delta: number) => {
-    if (!canControlVideo) return;
-    const video = videoRef.current;
-    if (!video) return;
-    const next = Math.max(0, Math.min(video.duration, video.currentTime + delta));
-    video.currentTime = next;
-    emitVideoEvent("seek", { currentTime: next });
-  }, [canControlVideo, emitVideoEvent]);
-
-  const scrub = useCallback((percent: number) => {
-    const video = videoRef.current;
-    if (!video || !video.duration) return;
-    const next = video.duration * percent;
-    video.currentTime = next;
-    emitVideoEvent("seek", { currentTime: next });
-  }, [emitVideoEvent]);
-
-  const handleLineClick = useCallback((index: number) => {
-    // Usuários privilegiados (director, admin, owner) têm acesso total
-    // Dubladores precisam de canTextControl para navegar
-    if (!isPrivileged && !canTextControl && loopSelectionMode === "idle") return;
-    const line = scriptLines[index];
-    if (!line) return;
-
-    if (loopSelectionMode === "selecting-start") {
-      // Começar 3 segundos antes da fala inicial
-      const adjustedStart = Math.max(0, line.start - 3);
-      setCustomLoop({ start: adjustedStart, end: line.end || (line.start + 2) });
-      setLoopAnchorIndex(index);
-      setLoopSelectionMode("selecting-end");
-      toast({ title: "Início selecionado", description: "Clique na fala final do loop." });
-    } else if (loopSelectionMode === "selecting-end") {
-      const startIndex = loopAnchorIndex ?? index;
-      const normalizedStartIndex = Math.min(startIndex, index);
-      const normalizedEndIndex = Math.max(startIndex, index);
-      const startLine = scriptLines[normalizedStartIndex] || line;
-      const endLine = scriptLines[normalizedEndIndex] || line;
-      
-      // Manter preroll de 3s no início
-      const start = Math.max(0, startLine.start - 3);
-      const baseEnd = endLine.end || (endLine.start + 2);
-      
-      // Posroll simples de 2 segundos
-      const end = baseEnd + 2;
-      
-      setCustomLoop({ start, end });
-      setLoopRangeMeta({ startIndex: normalizedStartIndex, endIndex: normalizedEndIndex });
-      setLoopSelectionMode("idle");
-      setIsLooping(true);
-      toast({ title: "Loop definido", description: "Preroll de 3s e posroll de 2s aplicados." });
-      emitVideoEvent("sync-loop", { loopRange: { start, end } });
-      logFeatureAudit("room.loop", "defined", { start, end, startLineIndex: normalizedStartIndex, endLineIndex: normalizedEndIndex });
-    } else {
-      const video = videoRef.current;
-      if (video) {
-        video.currentTime = line.start;
-        emitVideoEvent("seek", { currentTime: line.start });
-      }
-      setCurrentLine(index);
-    }
-  }, [isPrivileged, canTextControl, scriptLines, loopSelectionMode, toast, emitVideoEvent, loopAnchorIndex, logFeatureAudit]);
-
-  const handleLoopButton = useCallback(async () => {
-    if (!canControlVideo) return;
-    if (loopSelectionMode !== "idle" || customLoop) {
-      setLoopSelectionMode("idle");
-      setIsLooping(false);
-      setCustomLoop(null);
-      setLoopRangeMeta(null);
-      setLoopAnchorIndex(null);
-      // Broadcast loop cancellation so all clients (dubbers) also stop looping
-      emitVideoEvent("loop:cancel", {});
-    } else {
-      // Start loop selection mode
-      setLoopSelectionMode("selecting-start");
-      toast({ title: "Modo Loop", description: "Clique na primeira fala do loop." });
-    }
-  }, [canControlVideo, loopSelectionMode, customLoop, loopAnchorIndex, toast, emitVideoEvent]);
-
-  const handleSkipBackward = useCallback(() => {
-    const video = videoRef.current;
-    if (video) {
-      const newTime = Math.max(0, video.currentTime - 3);
-      video.currentTime = newTime;
-      emitVideoEvent("seek", { currentTime: newTime });
-    }
-  }, [emitVideoEvent]);
-
-  const handleSkipForward = useCallback(() => {
-    const video = videoRef.current;
-    if (video) {
-      const newTime = Math.min(video.duration || 0, video.currentTime + 3);
-      video.currentTime = newTime;
-      emitVideoEvent("seek", { currentTime: newTime });
-    }
-  }, [emitVideoEvent]);
-
-  const handleBack = useCallback(() => {
-    const next = !onlySelectedCharacter;
-    setOnlySelectedCharacter(next);
-    logFeatureAudit("room.character_filter", "toggled", { enabled: next, character: recordingProfile?.characterName || null });
-  }, [onlySelectedCharacter, recordingProfile, logFeatureAudit]);
-
-  const handleToggleAutoFollow = useCallback(() => {
-    const next = !scriptAutoFollow;
-    setScriptAutoFollow(next);
-    if (next) syncScrollToCurrentVideoTime();
-    logFeatureAudit("room.scroll", "mode_changed", { mode: next ? "automatic" : "manual" });
-  }, [scriptAutoFollow, syncScrollToCurrentVideoTime, logFeatureAudit]);
-
-  const handleShortcutsApply = useCallback((pending: typeof shortcuts) => {
-    setShortcuts(pending);
-    setIsCustomizing(false);
-    toast({ title: "Atalhos atualizados (apenas nesta sessão)" });
-  }, [toast]);
-
-  const handleShortcutsSaveDefault = useCallback((pending: typeof shortcuts) => {
-    setShortcuts(pending);
-    localStorage.setItem("vhub_shortcuts", JSON.stringify(pending));
-    setIsCustomizing(false);
-    toast({ title: "Atalhos salvos como padrão" });
-  }, [toast]);
-
-  const handleShortcutsClose = useCallback(() => {
-    setIsCustomizing(false);
-    setPendingShortcuts(shortcuts);
-    setListeningFor(null);
-  }, [shortcuts]);
-
-  const handleRecordOrStop = useCallback(async () => {
-    console.log("[RecordOrStop] Botão REC clicado", { 
-      recordingStatus, 
-      micState: !!micState, 
-      micStateType: typeof micState,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (recordingStatus === "recording" || recordingStatus === "countdown" || recordingStatus === "stopping") {
-      console.log("[RecordOrStop] Estado de gravação ativo, chamando handleStopRecording...", { 
-        recordingStatus,
-        motivo: "Usuário clicou para parar"
-      });
-      try {
-        await handleStopRecording();
-        console.log("[RecordOrStop] handleStopRecording concluído com sucesso");
-      } catch (error) {
-        console.error("[RecordOrStop] Erro em handleStopRecording:", error);
-      }
-    } else {
-      console.log("[RecordOrStop] Estado inativo, iniciando nova gravação...", { 
-        recordingStatus,
-        motivo: "Usuário clicou para gravar"
-      });
-      try {
-        await startCountdown();
-        console.log("[RecordOrStop] startCountdown concluído com sucesso");
-      } catch (error) {
-        console.error("[RecordOrStop] Erro em startCountdown:", error);
-      }
-    }
-  }, [recordingStatus, micState, handleStopRecording, startCountdown]);
-
-  const handleDiscardModalCancel = useCallback(() => {
-    setDiscardModalTake(null);
-    setDiscardFinalStep(false);
-  }, []);
-
-  const handleDiscardModalConfirm = useCallback(async () => {
-    if (!discardFinalStep) { setDiscardFinalStep(true); return; }
-    await handleDiscardTake(discardModalTake);
-    emitVideoEvent("take-status", { status: "deleted", takeId: discardModalTake.id, targetUserId: discardModalTake.voiceActorId });
-  }, [discardFinalStep, discardModalTake, handleDiscardTake, emitVideoEvent]);
-
-  // Debounce para live updates de texto
-  useEffect(() => {
-    if (!editingField) return;
-    const handler = setTimeout(() => {
-      emitTextControlEvent("text:live-change", { lineIndex: editingField.lineIndex, text: editingDraftValue });
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [editingDraftValue, editingField, emitTextControlEvent]);
-
-  const startInlineEdit = useCallback((lineIndex: number, field: "character" | "text" | "timecode") => {
-    // Verificar lock
-    const lock = lockedLines[lineIndex];
-    if (lock && lock.userId !== user?.id) {
-      toast({ title: "Linha bloqueada", description: "Outro usuário está editando esta linha.", variant: "destructive" });
-      return;
-    }
-
-    const line = scriptLines[lineIndex];
-    if (!line) return;
-    const initial = field === "character" ? line.character : field === "text" ? line.text : formatTimecodeByFormat(line.start, "HH:MM:SS", 24);
-    setEditingField({ lineIndex, field });
-    setEditingDraftValue(initial);
-    
-    // Emitir lock
-    emitTextControlEvent("text:lock-line", { lineIndex, userId: user?.id });
-  }, [scriptLines, lockedLines, user?.id, emitTextControlEvent, toast]);
-
-  const cancelInlineEdit = useCallback(() => {
-    if (editingField) {
-      emitTextControlEvent("text:unlock-line", { lineIndex: editingField.lineIndex });
-    }
-    setEditingField(null);
-    setEditingDraftValue("");
-  }, [editingField, emitTextControlEvent]);
-
-  const saveInlineEdit = useCallback(() => {
-    if (!editingField) return;
-    const line = scriptLines[editingField.lineIndex];
-    if (!line) return;
-    const by = String(user?.displayName || user?.fullName || "Usuário");
-    const patch: ScriptLineOverride = {};
-    let before = "";
-    let after = "";
-    if (editingField.field === "character") {
-      before = line.character;
-      after = editingDraftValue.trim();
-      if (!after) {
-        toast({ title: "Nome do personagem inválido", variant: "destructive" });
-        return;
-      }
-      patch.character = after;
-    } else if (editingField.field === "text") {
-      before = line.text;
-      after = editingDraftValue.trim();
-      if (!after) {
-        toast({ title: "Texto da fala inválido", variant: "destructive" });
-        return;
-      }
-      patch.text = after;
-    } else {
-      const candidate = editingDraftValue.trim();
-      if (!/^\d{2}:[0-5]\d:[0-5]\d$/.test(candidate)) {
-        toast({ title: "Timecode inválido", description: "Use o formato HH:MM:SS.", variant: "destructive" });
-        return;
-      }
-      before = formatTimecodeByFormat(line.start, "HH:MM:SS", 24);
-      after = candidate;
-      patch.start = parseTimecode(candidate);
-    }
-    applyScriptLinePatch(editingField.lineIndex, patch);
-    pushEditHistory(editingField.lineIndex, editingField.field, before, after, by);
-    
-    emitTextControlEvent("text-control:update-line", { lineIndex: editingField.lineIndex, ...patch, history: { field: editingField.field, before, after, by } });
-    
-    // Unlock ao salvar
-    emitTextControlEvent("text:unlock-line", { lineIndex: editingField.lineIndex });
-
-    setEditingField(null);
-    setEditingDraftValue("");
-    toast({ title: "Alteração salva", description: `${editingField.field} atualizado com sucesso.` });
-  }, [editingField, scriptLines, user?.displayName, user?.fullName, editingDraftValue, toast, applyScriptLinePatch, pushEditHistory, emitTextControlEvent]);
-
-  const toggleUserTextControl = useCallback((targetUserId: string) => {
-    if (!canTextControl) return;
-    const hasPermission = textControllerUserIds.has(targetUserId);
-    // Optimistic UI update: toggle immediately
-    const next = new Set(textControllerUserIds);
-    if (hasPermission) {
-      next.delete(targetUserId);
-    } else {
-      next.add(targetUserId);
-    }
-    setTextControllerUserIds(next);
-    emitTextControlEvent(hasPermission ? "text-control:revoke-controller" : "text-control:grant-controller", { targetUserId });
-  }, [canTextControl, textControllerUserIds, emitTextControlEvent]);
-
-  const getTakeStreamUrl = useCallback((take: any) => {
-    const takeId = String(take?.id || "").trim();
-    if (!takeId) return "";
-    return `/api/takes/${takeId}/stream`;
-  }, []);
-
-  const validateTakeAudioBlob = useCallback(async (take: any, blob: Blob) => {
-    if (!blob || blob.size <= 0) {
-      throw new Error("Arquivo vazio.");
-    }
-    const maxBytes = 100 * 1024 * 1024;
-    if (blob.size > maxBytes) {
-      throw new Error("Arquivo excede o limite de 100MB.");
-    }
-    const name = String(take?.fileName || take?.audioUrl || "").toLowerCase();
-    const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
-    const type = String(blob.type || "").toLowerCase();
-    const validExt = [".mp3", ".wav", ".m4a"].includes(ext);
-    const validType = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a", "audio/x-m4a"].some((item) => type.startsWith(item));
-    if (!validExt && !validType) {
-      throw new Error("Formato de áudio não suportado.");
-    }
-    const duration = await new Promise<number>((resolve, reject) => {
-      const probeUrl = URL.createObjectURL(blob);
-      const probeAudio = new Audio();
-      const timeout = window.setTimeout(() => {
-        probeAudio.src = "";
-        URL.revokeObjectURL(probeUrl);
-        reject(new Error("Tempo limite ao validar metadados do áudio."));
-      }, 12000);
-      probeAudio.preload = "metadata";
-      probeAudio.onloadedmetadata = () => {
-        window.clearTimeout(timeout);
-        const value = Number(probeAudio.duration || 0);
-        probeAudio.src = "";
-        URL.revokeObjectURL(probeUrl);
-        resolve(value);
-      };
-      probeAudio.onerror = () => {
-        window.clearTimeout(timeout);
-        probeAudio.src = "";
-        URL.revokeObjectURL(probeUrl);
-        reject(new Error("Arquivo de áudio corrompido ou inválido."));
-      };
-      probeAudio.src = probeUrl;
-    });
-    if (!Number.isFinite(duration) || duration <= 0) {
-      throw new Error("Duração inválida do arquivo de áudio.");
-    }
-  }, []);
-
-  const resolveTakePlayableUrl = useCallback(async (take: any, opts?: { prefetch?: boolean }) => {
-    const takeId = String(take?.id || "");
-    if (!takeId) throw new Error("Take inválido.");
-    const inMemory = cachedRecordingBlobUrlsRef.current[takeId];
-    if (inMemory) return inMemory;
-    const streamUrl = getTakeStreamUrl(take);
-    if (!streamUrl) throw new Error("URL de stream indisponível.");
-    
-    setRecordingsIsLoading((prev) => { const next = new Set(prev); next.add(takeId); return next; });
-    setRecordingAvailability((prev) => ({ ...prev, [takeId]: "loading" }));
-
-    try {
-      const cacheStorage = typeof window !== "undefined" && "caches" in window ? await caches.open("vhub_audio_takes_v1").catch(() => null) : null;
-      const cacheRequest = new Request(streamUrl, { credentials: "include" });
-      if (cacheStorage) {
-        const cachedResponse = await cacheStorage.match(cacheRequest);
-        if (cachedResponse?.ok) {
-          const blob = await cachedResponse.blob();
-          await validateTakeAudioBlob(take, blob);
-          const objectUrl = URL.createObjectURL(blob);
-          cachedRecordingBlobUrlsRef.current[takeId] = objectUrl;
-          setRecordingPlayableUrls((prev) => ({ ...prev, [takeId]: objectUrl }));
-          setRecordingAvailability((prev) => ({ ...prev, [takeId]: "available" }));
-          return objectUrl;
+        if (voiceCaptureMode !== prev.mode) {
+          toast({
+            title: "Modo de captura alterado",
+            description: voiceCaptureMode === "studio"
+              ? "Studio Mode — filtros de voz ativados"
+              : voiceCaptureMode === "high-fidelity" 
+              ? "High-End Audio — Controle exclusivo" 
+              : "Original Microphone — captura crua",
+          });
+        } else {
+           toast({ title: "Dispositivo de entrada alterado" });
         }
-      }
-
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), opts?.prefetch ? 15000 : 30000);
-      const startedAt = performance.now();
-      try {
-        const response = await fetch(streamUrl, {
-          credentials: "include",
-          signal: controller.signal,
+      } catch (e) {
+        console.error("Mic switch error", e);
+        toast({
+          title: "Erro ao acessar dispositivo",
+          description: "Verifique se o microfone esta conectado e permitido.",
+          variant: "destructive",
         });
-        if (!response.ok) {
-          throw new Error(`Arquivo inacessível (${response.status})`);
-        }
-        const blob = await response.blob();
-        await validateTakeAudioBlob(take, blob);
-        if (cacheStorage) {
-          await cacheStorage.put(cacheRequest, new Response(blob, { headers: { "content-type": blob.type || "audio/wav" } })).catch(() => {});
-        }
-        const objectUrl = URL.createObjectURL(blob);
-        cachedRecordingBlobUrlsRef.current[takeId] = objectUrl;
-        setRecordingPlayableUrls((prev) => ({ ...prev, [takeId]: objectUrl }));
-        setRecordingAvailability((prev) => ({ ...prev, [takeId]: "available" }));
-        console.info("[Room][Audio] take carregado", { takeId, bytes: blob.size, contentType: blob.type || null, elapsedMs: Math.round(performance.now() - startedAt) });
-        return objectUrl;
-      } catch (error: any) {
-        setRecordingAvailability((prev) => ({ ...prev, [takeId]: "error" }));
-        throw new Error(error?.name === "AbortError" ? "Tempo limite ao carregar áudio." : String(error?.message || error));
-      } finally {
-        window.clearTimeout(timeout);
+        setMicReady(false);
       }
-    } finally {
-      setRecordingsIsLoading((prev) => { const next = new Set(prev); next.delete(takeId); return next; });
-    }
-  }, [getTakeStreamUrl, validateTakeAudioBlob]);
+    })();
+  }, [deviceSettings.voiceCaptureMode, deviceSettings.inputDeviceId, recordingStatus, deviceSettings.inputGain, toast]);
 
-  useEffect(() => {
-    if (!recordingsOpen) return;
-    const targets = scopedRecordings.slice(0, 4);
-    if (targets.length === 0) return;
-    let cancelled = false;
-    const run = async () => {
-      for (const take of targets) {
-        if (cancelled) break;
-        const id = String(take?.id || "");
-        const availability = recordingAvailability[id];
-        if (!id || availability === "available" || availability === "loading" || availability === "error") continue;
-        try {
-          await resolveTakePlayableUrl(take, { prefetch: true });
-        } catch {}
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [recordingsOpen, scopedRecordings, resolveTakePlayableUrl, recordingAvailability]);
-
-  const handleDownloadTake = useCallback(async (take: any) => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
-    try {
-      const takeId = String(take?.id || "");
-      if (!takeId) throw new Error("Take inválido.");
-      const response = await fetch(`/api/takes/${takeId}/download`, {
-        credentials: "include",
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`Falha ao baixar take (${response.status})`);
-      }
-      const blob = await response.blob();
-      if (!blob || blob.size <= 0) {
-        throw new Error("Arquivo vazio ou indisponível.");
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = take?.fileName || `take_${take.characterName}_${take.lineIndex}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
-    } catch (err) {
-      toast({ title: "Erro ao baixar take", description: String((err as any)?.message || err), variant: "destructive" });
-      throw err;
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }, [toast]);
-
-  const handlePlayRecordingTake = useCallback(async (take: any) => {
-    const audio = recordingsPreviewAudioRef.current;
-    if (!audio) return;
-    const takeId = String(take?.id || "");
-    if (!takeId) return;
-    if (recordingsPreviewId === take.id && !recordingsPlayerOpenId) {
-      audio.pause();
-      setRecordingsPreviewId(null);
-      setRecordingsPlayerOpenId(null);
-      return;
-    }
-    try {
-      setRecordingsIsLoading((prev) => new Set(prev).add(takeId));
-      const streamUrl = await getTakeStreamUrl(take);
-      if (streamUrl) {
-        audio.src = streamUrl;
-        await audio.play();
-        setRecordingsPreviewId(String(take.id));
-        setRecordingsPlayerOpenId(String(take.id));
-        setRecordingPlayableUrls((prev) => ({ ...prev, [takeId]: streamUrl }));
-        setRecordingAvailability((prev) => ({ ...prev, [takeId]: "available" }));
-      }
-    } catch (error) {
-      console.error("Failed to play audio:", error);
-      setRecordingAvailability((prev) => ({ ...prev, [takeId]: "error" }));
-    } finally {
-      setRecordingsIsLoading((prev) => { const next = new Set(prev); next.delete(takeId); return next; });
-    }
-  }, [recordingsPreviewId, recordingsPlayerOpenId, getTakeStreamUrl]);
-
-  const handleDownloadRecordingTake = useCallback(async (take: any) => {
-    const takeId = String(take?.id || "");
-    if (!takeId) return;
-    try {
-      setRecordingsIsLoading((prev) => new Set(prev).add(takeId));
-      await handleDownloadTake(take);
-    } catch (error) {
-      console.error("Failed to download take:", error);
-      toast({ title: "Erro ao baixar", description: "Não foi possível baixar a gravação.", variant: "destructive" });
-    } finally {
-      setRecordingsIsLoading((prev) => { const next = new Set(prev); next.delete(takeId); return next; });
-    }
-  }, [handleDownloadTake, toast]);
-
-  const handleDiscardRecordingTake = useCallback((take: any) => {
-    setDiscardModalTake(take);
-    setDiscardFinalStep(false);
-  }, []);
-
-  const handleRecordingLoadedMetadata = useCallback((tid: string, rate: number, el: HTMLAudioElement) => {
-    el.playbackRate = rate;
-    setRecordingAvailability((prev) => ({ ...prev, [tid]: "available" }));
-  }, []);
-
-  const handleRecordingAudioError = useCallback((tid: string) => {
-    setRecordingAvailability((prev) => ({ ...prev, [tid]: "error" }));
-  }, []);
-
-  const handleRecordingsAudioEnded = useCallback(() => {
-    setRecordingsPreviewId(null);
-    setRecordingsPlayerOpenId(null);
-  }, []);
-
-  const handleActorNameChange = useCallback((name: string) => {
-    setRecordingProfile((prev: any) => {
-      const updated = { ...(prev || {}), actorName: name, voiceActorName: name };
-      localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(updated));
-      return updated;
-    });
-  }, [sessionId]);
+  
 
   const handleSaveProfile = useCallback((profile: RecordingProfile) => {
     setRecordingProfile(profile);
     localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(profile));
     setShowProfilePanel(false);
-  }, [sessionId]);
+    toast({ title: "Perfil de gravacao definido", description: `${profile.voiceActorName} como ${profile.characterName}` });
+  }, [sessionId, toast]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      
-      const code = e.code;
-      if (code === shortcuts.playPause) { e.preventDefault(); handlePlayPause(); }
-      else if (code === shortcuts.record) { e.preventDefault(); if (recordingStatus !== "recording" && recordingStatus !== "countdown") void startCountdown(); }
-      else if (code === shortcuts.stop) { e.preventDefault(); if (recordingStatus === "recording" || recordingStatus === "countdown") void handleStopRecording(); else handleStopPlayback(); }
-      else if (code === shortcuts.back) { e.preventDefault(); seek(-2); }
-      else if (code === shortcuts.forward) { e.preventDefault(); seek(2); }
-      else if (code === shortcuts.loop) { e.preventDefault(); void handleLoopButton(); }
+  const handleChangeCharacter = useCallback((charId: string) => {
+    if (!recordingProfile || !charactersList) return;
+    const char = charactersList.find((c) => c.id === charId);
+    if (!char) return;
+    const updated: RecordingProfile = {
+      ...recordingProfile,
+      characterName: char.name,
+      characterId: char.id,
+      voiceActorId: char.voiceActorId || recordingProfile.userId,
     };
+    setRecordingProfile(updated);
+    localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(updated));
+    toast({ title: "Personagem alterado", description: `Gravando como ${char.name}` });
+  }, [recordingProfile, charactersList, sessionId, toast]);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [shortcuts, handlePlayPause, handleStopRecording, handleStopPlayback, recordingStatus, startCountdown, seek, handleLoopButton]);
-
-  useEffect(() => {
-    if (isLooping) return;
-    setLoopPreparing(false);
-    setLoopSilenceActive(false);
-    loopSilenceLockRef.current = false;
-    if (loopPreparationTimeoutRef.current) {
-      window.clearTimeout(loopPreparationTimeoutRef.current);
-      loopPreparationTimeoutRef.current = null;
-    }
-    if (loopSilenceTimeoutRef.current) {
-      window.clearTimeout(loopSilenceTimeoutRef.current);
-      loopSilenceTimeoutRef.current = null;
-    }
-  }, [isLooping]);
 
   useEffect(() => {
-    return () => {
-      if (loopPreparationTimeoutRef.current) window.clearTimeout(loopPreparationTimeoutRef.current);
-      if (loopSilenceTimeoutRef.current) window.clearTimeout(loopSilenceTimeoutRef.current);
-      
-      // Limpar todos os Object URLs criados para evitar memory leaks
-      Object.values(cachedRecordingBlobUrlsRef.current).forEach(url => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (e) {
-          console.warn("[Room] Falha ao revogar URL no cleanup:", e);
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      const t = video.currentTime;
+      setVideoTime(t);
+
+      const idx = scriptLines.findIndex(
+        (line) => t >= line.start && t < (line.end ?? line.start + 1)
+      );
+      if (idx !== -1 && idx !== currentLine) {
+        setCurrentLine(idx);
+      }
+
+      if (isLooping) {
+        let loopStart = 0;
+        let loopEnd = videoDuration;
+
+        if (customLoop) {
+          loopStart = customLoop.start;
+          loopEnd = customLoop.end;
+        } else if (idx !== -1) {
+          const line = scriptLines[idx];
+          loopStart = Math.max(0, line.start - preRoll);
+          loopEnd = (line.end ?? line.start) + postRoll;
         }
-      });
-      cachedRecordingBlobUrlsRef.current = {};
-      
-      if (pendingTake?.url) {
-        URL.revokeObjectURL(pendingTake.url);
+
+        if (t >= loopEnd) {
+          video.currentTime = loopStart;
+        }
       }
     };
-  }, [pendingTake?.url]);
 
-  console.log("[RecordingRoom] Iniciando renderização principal");
-  
-  if (sessionLoading || productionLoading) {
-    console.log("[RecordingRoom] Renderizando loading state");
+    const handleDurationChange = () => {
+      if (!isNaN(video.duration)) setVideoDuration(video.duration);
+    };
+
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("durationchange", handleDurationChange);
+    return () => {
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("durationchange", handleDurationChange);
+    };
+  }, [scriptLines, currentLine, isLooping, preRoll, postRoll]);
+
+  const getTelepromptTargetScroll = useCallback(() => {
+    const viewport = scriptViewportRef.current;
+    const activeEl = lineRefs.current[currentLine];
+    if (!viewport || !activeEl) return null;
+
+    const currentScript = scriptLines[currentLine];
+    const currentStart = currentScript?.start ?? 0;
+    const currentEnd = currentScript?.end ?? (currentStart + 1);
+    const lineDuration = Math.max(0.25, currentEnd - currentStart);
+    const lineProgress = Math.min(1, Math.max(0, (videoTime - currentStart) / lineDuration));
+
+    const nextIdx = Math.min(currentLine + 1, scriptLines.length - 1);
+    const nextEl = lineRefs.current[nextIdx];
+    const activeTop = activeEl.offsetTop;
+    const nextTop = nextEl ? nextEl.offsetTop : activeTop;
+    const interpolatedTop = activeTop + ((nextTop - activeTop) * lineProgress);
+
+    const focusY = viewport.clientHeight * 0.34;
+    const rawTarget = interpolatedTop - focusY;
+    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+
+    return Math.min(maxScroll, Math.max(0, rawTarget));
+  }, [currentLine, scriptLines, videoTime]);
+
+  useEffect(() => {
+    const viewport = scriptViewportRef.current;
+    if (!viewport) return;
+
+    const target = getTelepromptTargetScroll();
+    if (target === null) return;
+
+    if (telepromptRafRef.current) {
+      cancelAnimationFrame(telepromptRafRef.current);
+      telepromptRafRef.current = null;
+    }
+
+    const step = () => {
+      const nextTarget = getTelepromptTargetScroll();
+      if (nextTarget === null) return;
+
+      const current = viewport.scrollTop;
+      const diff = nextTarget - current;
+      if (Math.abs(diff) < 0.35) {
+        viewport.scrollTop = nextTarget;
+        return;
+      }
+
+      const factor = isPlaying ? 0.11 : 0.2;
+      viewport.scrollTop = current + (diff * factor);
+      telepromptRafRef.current = requestAnimationFrame(step);
+    };
+
+    telepromptRafRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (telepromptRafRef.current) {
+        cancelAnimationFrame(telepromptRafRef.current);
+        telepromptRafRef.current = null;
+      }
+    };
+  }, [getTelepromptTargetScroll, isPlaying]);
+
+  useEffect(() => {
+    if (!listeningFor) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") {
+        setListeningFor(null);
+        return;
+      }
+      setPendingShortcuts((prev) => ({ ...prev, [listeningFor]: e.code }));
+      setListeningFor(null);
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [listeningFor]);
+
+  const emitVideoEvent = useCallback((event: string, data: any) => {
+    if (isRemoteAction.current) return;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) { // WebSocket.OPEN is 1
+      ws.send(JSON.stringify({ type: event, ...data }));
+    }
+  }, []);
+
+  const playVideo = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.play().catch(() => {});
+    setIsPlaying(true);
+    emitVideoEvent("video-play", { currentTime: videoRef.current.currentTime });
+  }, [emitVideoEvent]);
+
+  const pauseVideo = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.pause();
+    setIsPlaying(false);
+    emitVideoEvent("video-pause", { currentTime: videoRef.current.currentTime });
+  }, [emitVideoEvent]);
+
+  const handlePlayPause = useCallback(() => {
+    if (isPlaying) {
+      pauseVideo();
+    } else {
+      playVideo();
+    }
+  }, [isPlaying, playVideo, pauseVideo]);
+
+  const handleStopPlayback = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.pause();
+    const line = scriptLines[currentLine];
+    const t = line?.start ?? 0;
+    videoRef.current.currentTime = t;
+    setIsPlaying(false);
+    emitVideoEvent("video-seek", { currentTime: t, lineIndex: currentLine });
+  }, [currentLine, scriptLines, emitVideoEvent]);
+
+  const seek = useCallback((amount: number) => {
+    if (!videoRef.current) return;
+    const t = Math.max(0, videoRef.current.currentTime + amount);
+    videoRef.current.currentTime = t;
+    emitVideoEvent("video-seek", { currentTime: t });
+  }, [emitVideoEvent]);
+
+  const scrub = useCallback((fraction: number) => {
+    if (!videoRef.current || !videoDuration || !canControl) return;
+    const t = fraction * videoDuration;
+    videoRef.current.currentTime = t;
+    emitVideoEvent("video-seek", { currentTime: t });
+  }, [videoDuration, emitVideoEvent, canControl]);
+
+  const handleLineClick = useCallback((idx: number) => {
+    if (!canControl) return;
+    const line = scriptLines[idx];
+    if (!line) return;
+
+    if (loopSelectionMode === "selecting-start") {
+      setCustomLoop({ start: line.start, end: line.end || line.start + 1 });
+      setLoopSelectionMode("selecting-end");
+      toast({ title: "Inicio do loop definido", description: "Clique agora na fala final do loop." });
+    } else if (loopSelectionMode === "selecting-end") {
+      if (customLoop) {
+        const newLoop = { ...customLoop, end: line.end || line.start + 1 };
+        setCustomLoop(newLoop);
+        setLoopSelectionMode("idle");
+        setIsLooping(true);
+        if (videoRef.current) videoRef.current.currentTime = newLoop.start;
+        emitVideoEvent("sync-loop", { loopRange: newLoop });
+        toast({ title: "Loop definido", description: "O trecho selecionado sera repetido." });
+      }
+    } else {
+      setCurrentLine(idx);
+      if (videoRef.current) {
+        videoRef.current.currentTime = line.start;
+        emitVideoEvent("video-seek", { currentTime: line.start, lineIndex: idx });
+      }
+    }
+  }, [scriptLines, emitVideoEvent, canControl, loopSelectionMode, customLoop, toast]);
+
+  const cleanupPreview = useCallback(() => {
+    if (previewUrl) {
+      revokePreviewUrl(previewUrl);
+      setPreviewUrl(null);
+    }
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    setLastRecording(null);
+    setQualityMetrics(null);
+    setRecordingStatus("idle");
+  }, [previewUrl]);
+
+  const startCountdown = useCallback(async () => {
+    if (!recordingProfile) {
+      setShowProfilePanel(true);
+      toast({
+        title: "Perfil de gravacao necessario",
+        description: "Defina seu perfil antes de gravar.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!micState || !micReady) {
+      toast({
+        title: "Microfone nao esta pronto",
+        description: "Permita o acesso ao microfone.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (recordingStatus === "recording") {
+      stopCapture(micState);
+      pauseVideo();
+      setRecordingStatus("idle");
+      return;
+    }
+    if (recordingStatus === "recorded" || recordingStatus === "previewing") {
+      cleanupPreview();
+    }
+
+    if (micState.audioContext.state === "suspended") {
+      await micState.audioContext.resume();
+      console.log("[Room] AudioContext resumed on user gesture");
+    }
+
+    setRecordingStatus("countdown");
+    let remaining = 3;
+    setCountdownValue(remaining);
+    playCountdownBeep(micState.audioContext, 660, 0.12);
+
+    countdownTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setCountdownValue(remaining);
+        playCountdownBeep(micState.audioContext, 660, 0.12);
+      } else {
+        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+        playCountdownBeep(micState.audioContext, 1320, 0.2);
+        setCountdownValue(0);
+        recordingStartTimecodeRef.current = videoRef.current?.currentTime ?? 0;
+        setRecordingStatus("recording");
+        startCapture(micState);
+        playVideo();
+        console.log("[Room] Recording started — video playing, timecode:", recordingStartTimecodeRef.current);
+      }
+    }, 1000);
+  }, [micState, micReady, recordingStatus, recordingProfile, cleanupPreview, toast, playVideo, pauseVideo]);
+
+  const handleStopRecording = useCallback(() => {
+    if (!micState || recordingStatus !== "recording") return;
+    const result = stopCapture(micState);
+    pauseVideo();
+    console.log("[Room] Recording stopped — video paused:", {
+      samples: result.samples.length,
+      duration: result.durationSeconds,
+    });
+
+    if (result.samples.length === 0 || result.durationSeconds < 0.1) {
+      toast({
+        title: "Gravacao muito curta",
+        description: "A gravacao esta vazia ou muito curta. Verifique se o microfone esta funcionando.",
+        variant: "destructive",
+      });
+      setRecordingStatus("idle");
+      return;
+    }
+
+    setLastRecording(result);
+    const metrics = analyzeTakeQuality(result.samples);
+    setQualityMetrics(metrics);
+    const wavBuffer = encodeWav(result.samples);
+    const blob = wavToBlob(wavBuffer);
+    const url = createPreviewUrl(blob);
+    setPreviewUrl(url);
+    setRecordingStatus("recorded");
+    toast({
+      title: "Gravacao concluida",
+      description: `${result.durationSeconds.toFixed(1)}s capturados. Clique no botao verde para salvar.`,
+    });
+  }, [micState, recordingStatus, toast, pauseVideo]);
+
+  const handlePreview = useCallback(() => {
+    if (!previewUrl) return;
+    if (recordingStatus === "previewing" && previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+      setRecordingStatus("recorded");
+      return;
+    }
+    const audio = new Audio(previewUrl);
+    audio.onended = () => setRecordingStatus("recorded");
+    audio.play().catch(() => {});
+    previewAudioRef.current = audio;
+    setRecordingStatus("previewing");
+  }, [previewUrl, recordingStatus]);
+
+  const handleSaveTake = useCallback(async () => {
+    if (isSaving) return;
+
+    if (!recordingProfile) {
+      setShowProfilePanel(true);
+      toast({
+        title: "Perfil de gravacao necessario",
+        description: "Defina seu perfil antes de salvar takes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!lastRecording || !previewUrl) {
+      toast({
+        title: "Nenhuma gravacao disponivel",
+        description: "Grave um take primeiro antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (lastRecording.samples.length === 0) {
+      toast({
+        title: "Gravacao vazia",
+        description: "A gravacao nao capturou audio. Verifique seu microfone.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      let activeProfile = recordingProfile;
+      const charExistsInProduction = charactersList?.some((c: any) => c.id === activeProfile.characterId);
+      const needsCharCreation = !isValidUuid.test(activeProfile.characterId) || !charExistsInProduction;
+
+      if (needsCharCreation) {
+        if (!session?.productionId || !activeProfile.characterName?.trim()) {
+          setShowProfilePanel(true);
+          toast({ title: "Perfil invalido", description: "Reconfigure seu personagem antes de salvar.", variant: "destructive" });
+          setIsSaving(false);
+          return;
+        }
+        try {
+          const created = await authFetch(`/api/productions/${session.productionId}/characters`, {
+            method: "POST",
+            body: JSON.stringify({ name: activeProfile.characterName.trim(), productionId: session.productionId }),
+          });
+          activeProfile = { ...activeProfile, characterId: created.id };
+          setRecordingProfile(activeProfile);
+          localStorage.setItem(`vhub_rec_profile_${sessionId}`, JSON.stringify(activeProfile));
+        } catch (err: any) {
+          toast({ title: "Erro ao criar personagem", description: err?.message || "Tente novamente", variant: "destructive" });
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      const wavBuffer = encodeWav(lastRecording.samples);
+      const blob = wavToBlob(wavBuffer);
+      const durationSeconds = getDurationSeconds(lastRecording.samples);
+
+      const tcSeconds = Math.floor(recordingStartTimecodeRef.current);
+      const hh = String(Math.floor(tcSeconds / 3600)).padStart(2, "0");
+      const mm = String(Math.floor((tcSeconds % 3600) / 60)).padStart(2, "0");
+      const ss = String(tcSeconds % 60).padStart(2, "0");
+      const cleanName = (s: string) => s.replace(/[^a-zA-Z0-9]/g, "");
+      const fileName = `${cleanName(activeProfile.characterName)}_${cleanName(activeProfile.voiceActorName)}_${hh}${mm}${ss}.WAV`;
+
+      console.log("[SaveTake] Saving with profile:", {
+        character: activeProfile.characterName,
+        actor: activeProfile.voiceActorName,
+        lineIndex: currentLine,
+        durationSeconds,
+        fileName,
+      });
+
+      const formData = new FormData();
+      formData.append("audio", blob, fileName);
+      formData.append("characterId", activeProfile.characterId);
+      formData.append("voiceActorId", activeProfile.voiceActorId);
+      formData.append("voiceActorName", activeProfile.voiceActorName);
+      formData.append("characterName", activeProfile.characterName);
+      formData.append("lineIndex", String(currentLine));
+      formData.append("durationSeconds", String(durationSeconds));
+      formData.append("qualityScore", String(qualityMetrics?.score || 0));
+
+      const response = await fetch(`/api/sessions/${sessionId}/takes`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Falha ao salvar take (${response.status}): ${errorBody}`);
+      }
+
+      await response.json();
+
+      setSavedTakes((prev) => new Set(prev).add(currentLine));
+      setTakeCount((prev) => prev + 1);
+      cleanupPreview();
+      refetchTakes();
+      toast({
+        title: `Take salvo`,
+        description: `${recordingProfile.characterName} — Linha ${currentLine + 1} (${durationSeconds.toFixed(1)}s)`,
+      });
+    } catch (err: any) {
+      console.error("[SaveTake] Error:", err);
+      toast({
+        title: "Falha ao salvar",
+        description: err?.message || "Nao foi possivel salvar o take.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [lastRecording, previewUrl, isSaving, currentLine, sessionId, qualityMetrics, recordingProfile, cleanupPreview, refetchTakes, toast, charactersList, session]);
+
+  const handleDiscard = useCallback(() => {
+    cleanupPreview();
+    toast({ title: "Take descartado" });
+  }, [cleanupPreview, toast]);
+
+  useEffect(() => {
+    if (isCustomizing) return;
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      const code = e.code;
+      const key = e.key;
+
+      if (code === shortcuts.playPause || (shortcuts.playPause === "Space" && key === " ")) {
+        e.preventDefault();
+        if (recordingStatus === "recorded" || recordingStatus === "previewing") {
+          handlePreview();
+        } else {
+          handlePlayPause();
+        }
+      } else if (code === shortcuts.record) {
+        e.preventDefault();
+        if (recordingStatus === "idle" || recordingStatus === "recorded") startCountdown();
+      } else if (code === shortcuts.stop) {
+        e.preventDefault();
+        if (recordingStatus === "recording") {
+          handleStopRecording();
+        } else {
+          handleStopPlayback();
+        }
+      } else if (code === shortcuts.loop) {
+        e.preventDefault();
+        setIsLooping((l) => !l);
+      } else if (code === shortcuts.back) {
+        e.preventDefault();
+        seek(-2);
+      } else if (code === shortcuts.forward) {
+        e.preventDefault();
+        seek(2);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [shortcuts, isCustomizing, recordingStatus, handlePlayPause, handlePreview, startCountdown, handleStopRecording, handleStopPlayback, seek]);
+
+  const currentScriptLine = scriptLines[currentLine];
+
+  if (sessionLoading || (session && productionLoading)) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-          <p className="text-sm font-medium text-muted-foreground animate-pulse">Sincronizando estúdio...</p>
+          <div className="w-12 h-12 rounded-full animate-spin border-2 border-muted border-t-primary" />
+          <p className="text-sm text-muted-foreground">Carregando sala de gravacao...</p>
         </div>
       </div>
     );
@@ -2634,9 +1682,9 @@ export default function RecordingRoom() {
           <AlertCircle className="w-12 h-12 text-destructive" />
           <p className="text-sm font-medium text-foreground">Erro ao carregar sessao</p>
           <p className="text-xs text-muted-foreground">Verifique se voce tem acesso a este estudio e sessao.</p>
-          <Link to={`/hub-dub/studio/${studioId}/sessions`}>
-            <button className="mt-2 vhub-btn-sm vhub-btn-primary" data-testid="button-go-sessions">
-              Ir para Sessoes
+          <Link href={`/hub-dub/studio/${studioId}/sessions`}>
+            <button className="mt-2 vhub-btn-sm vhub-btn-primary" data-testid="button-back-sessions">
+              Voltar para Sessoes
             </button>
           </Link>
         </div>
@@ -2645,51 +1693,92 @@ export default function RecordingRoom() {
   }
 
   return (
-    <div
-      className={cn(
-        "recording-room h-screen w-screen overflow-hidden flex flex-col select-none relative bg-gray-50 text-gray-900",
-        recordingStatus === "recording" && "ring-2 ring-red-400"
-      )}
-      onClickCapture={(event) => {
-        const target = event.target as HTMLElement | null;
-        const button = target?.closest?.("button") as HTMLButtonElement | null;
-        if (!button) return;
-        button.classList.remove("rr-click-blink");
-        void button.offsetWidth;
-        button.classList.add("rr-click-blink");
-        window.setTimeout(() => button.classList.remove("rr-click-blink"), 300);
-      }}
-    >
-      {isCustomizing && (
-        <ShortcutsDialog
-          shortcuts={shortcuts}
-          pendingShortcuts={pendingShortcuts}
-          listeningFor={listeningFor}
-          shortcutLabels={SHORTCUT_LABELS}
-          defaultShortcuts={DEFAULT_SHORTCUTS}
-          keyLabel={keyLabel}
-          onSetPending={setPendingShortcuts}
-          onSetListeningFor={setListeningFor}
-          onApply={handleShortcutsApply}
-          onSaveDefault={handleShortcutsSaveDefault}
-          onClose={handleShortcutsClose}
-        />
+    <div className="h-screen w-screen overflow-hidden flex flex-col select-none relative bg-background text-foreground">
+      {/* Cinematic Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-background to-background opacity-50"></div>
+        <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] bg-repeat opacity-[0.02]"></div>
+      </div>
+
+      {recordingStatus === "countdown" && countdownValue > 0 && (
+        <CountdownOverlay count={countdownValue} />
       )}
 
-      <SimpleAudioSettings
+      {isCustomizing && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="rounded-2xl w-[420px] overflow-hidden glass-panel shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+              <span className="text-sm font-semibold text-foreground">Atalhos de Teclado</span>
+              <button
+                onClick={() => { setIsCustomizing(false); setPendingShortcuts(shortcuts); setListeningFor(null); }}
+                className="transition-colors text-muted-foreground hover:text-foreground"
+                data-testid="button-close-shortcuts"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-2">
+              {(Object.keys(SHORTCUT_LABELS) as Array<keyof Shortcuts>).map((key) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm" style={{ color: "rgba(255,255,255,0.70)" }}>{SHORTCUT_LABELS[key]}</span>
+                  <button
+                    onClick={() => setListeningFor(key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono min-w-[80px] text-center transition-all ${
+                      listeningFor === key
+                        ? "animate-pulse"
+                        : ""
+                    }`}
+                    style={listeningFor === key
+                      ? { border: "1px solid hsl(220 100% 55%)", background: "rgba(59,130,246,0.12)", color: "hsl(220 100% 65%)" }
+                      : { border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.70)" }
+                    }
+                    data-testid={`shortcut-btn-${key}`}
+                  >
+                    {listeningFor === key ? "Pressione tecla\u2026" : keyLabel(pendingShortcuts[key])}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 flex justify-between gap-3" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              <button
+                onClick={() => { setPendingShortcuts(DEFAULT_SHORTCUTS); setListeningFor(null); }}
+                className="text-xs transition-colors" style={{ color: "rgba(255,255,255,0.40)" }}
+                data-testid="button-reset-shortcuts"
+              >
+                Restaurar padroes
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShortcuts(pendingShortcuts); setIsCustomizing(false); toast({ title: "Atalhos atualizados (apenas nesta sessao)" }); }}
+                  className="vhub-btn-xs vhub-btn-secondary"
+                  data-testid="button-apply-shortcuts"
+                >
+                  Aplicar
+                </button>
+                <button
+                  onClick={() => {
+                    setShortcuts(pendingShortcuts);
+                    localStorage.setItem("vhub_shortcuts", JSON.stringify(pendingShortcuts));
+                    setIsCustomizing(false);
+                    toast({ title: "Atalhos salvos como padrao" });
+                  }}
+                  className="vhub-btn-xs vhub-btn-primary"
+                  data-testid="button-save-shortcuts"
+                >
+                  Salvar como Padrao
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <DeviceSettingsPanel
         open={deviceSettingsOpen}
         onClose={() => setDeviceSettingsOpen(false)}
-        initialMicDevice={deviceSettings.inputDeviceId}
-        initialOutputDevice={deviceSettings.outputDeviceId}
-        initialGain={Math.round(deviceSettings.inputGain * 100)}
-        onSave={(settings) => {
-          setDeviceSettings({
-            ...deviceSettings,
-            inputDeviceId: settings.micDevice,
-            outputDeviceId: settings.outputDevice,
-            inputGain: settings.gain / 100,
-          });
-        }}
+        settings={deviceSettings}
+        onSettingsChange={setDeviceSettings}
+        micState={micState}
       />
 
       {showProfilePanel && session?.productionId && (
@@ -2704,590 +1793,735 @@ export default function RecordingRoom() {
         />
       )}
 
-      {textControlPopupOpen && canTextControl && (
-        <TextControlPopup
-          authorizedCount={textControllerUserIds.size}
-          candidates={textControlCandidates}
-          authorizedIds={textControllerUserIds}
-          zIndex={UI_LAYER_BASE.modalOverlay}
-          normalizeRole={normalizeRoomRole}
-          onToggle={(uid) => toggleUserTextControl(uid)}
-          onClose={() => setTextControlPopupOpen(false)}
-        />
-      )}
-
-      {recordingsOpen && (
-        <RecordingsPanel
-          zIndex={UI_LAYER_BASE.modalOverlay}
-          recordingsResponse={recordingsResponse}
-          scopedRecordings={scopedRecordings}
-          recordingAvailability={recordingAvailability}
-          recordingsIsLoading={recordingsIsLoading}
-          recordingsPreviewId={recordingsPreviewId}
-          recordingsPlayerOpenId={recordingsPlayerOpenId}
-          recordingPlayableUrls={recordingPlayableUrls}
-          optimisticRemovingTakeIds={optimisticRemovingTakeIds}
-          audioRef={recordingsPreviewAudioRef}
-          rowAudioRefs={recordingRowAudioRefs}
-          getTakeStreamUrl={getTakeStreamUrl}
-          onClose={() => setRecordingsOpen(false)}
-          onPlayTake={handlePlayRecordingTake}
-          onDownloadTake={handleDownloadRecordingTake}
-          onLoadedMetadata={handleRecordingLoadedMetadata}
-          onAudioError={handleRecordingAudioError}
-        />
-      )}
-
-      <DiscardTakeModal
-        take={discardModalTake}
-        isFinalStep={discardFinalStep}
-        zIndex={UI_LAYER_BASE.confirmationModal}
-        onCancel={handleDiscardModalCancel}
-        onConfirm={handleDiscardModalConfirm}
-      />
-
-      <audio ref={previewAudioRef} preload="none" />
-      <audio
-        ref={recordingsPreviewAudioRef}
-        preload="none"
-        onEnded={handleRecordingsAudioEnded}
-      />
-
-      {/* ===== SESSION INFO BAR ===== */}
-      <div className="bg-white border-b border-gray-100 px-4 py-3 shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm text-gray-500">
-            <span className="font-medium">Session:</span> {session?.title || "Session"} <span className="mx-2">|</span> <span className="font-medium">Project:</span> {production?.name || "Project"}
-          </p>
-          <div className="flex items-center gap-3">
-            <span
-              title={wsConnected ? "Conectado" : "Reconectando..."}
-              className={cn("w-2 h-2 rounded-full shrink-0 transition-colors", wsConnected ? "bg-green-500" : "bg-yellow-400 animate-pulse")}
-            />
-            {isDirector && (
+      {takesPopupOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+          <div className="rounded-2xl w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              <span className="text-sm font-semibold" style={{ color: "hsl(210 40% 96%)" }}>Takes da Sessao</span>
               <button
-                onClick={() => setTextControlPopupOpen(true)}
-                className="h-8 px-3 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 text-sm font-medium flex items-center gap-2"
-                title="Gerenciar controle de texto e vídeo dos dubladores"
+                onClick={() => {
+                  setTakesPopupOpen(false);
+                  if (takePreviewAudioRef.current) {
+                    takePreviewAudioRef.current.pause();
+                    takePreviewAudioRef.current.currentTime = 0;
+                  }
+                  setTakePreviewId(null);
+                }}
+                className="transition-colors"
+                style={{ color: "rgba(255,255,255,0.40)" }}
+                data-testid="button-close-takes-popup"
               >
-                <Users className="w-4 h-4" />
-                Controle de Dubladores
-                {textControllerUserIds.size > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center" title={`${textControllerUserIds.size} dublador(es) com controle`}>
-                    {textControllerUserIds.size}
-                  </span>
-                )}
+                <X className="w-4 h-4" />
               </button>
-            )}
-            <button
-              onClick={() => setDeviceSettingsOpen(true)}
-              className="h-8 px-3 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-medium flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Configurar Áudio
-            </button>
-            <button onClick={handleBack} className="h-8 px-3 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-medium">Sair</button>
-          </div>
-        </div>
-        
-        {/* Compact Takes and Participants */}
-        <div className="flex items-center gap-6">
-          {/* Takes Panel */}
-          <div className="relative takes-dropdown">
-            <button
-              onClick={() => setTakesDropdownOpen(!takesDropdownOpen)}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-gray-700">Takes</h3>
-                <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">[{scopedRecordings.length || 0}]</span>
-              </div>
-              <svg className={`w-4 h-4 text-gray-500 transition-transform ${takesDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            
-            {/* Dropdown Menu */}
-            {takesDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                <div className="p-2">
-                  {scopedRecordings.length > 0 ? (
-                    scopedRecordings.slice(0, 5).map((take: any, index: number) => (
-                      <div key={take.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-medium">
-                          {take.characterName?.charAt(0) || "T"}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900">Take #{take.takeNumber || index + 1}</span>
-                            <span className="text-xs text-gray-500">{take.characterName}</span>
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {formatTimecodeByFormat(take.startTimeSeconds || 0, "HH:MM:SS", 24)} • {formatDurationLabel(take.durationSeconds || 0)}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Play take
-                            const audio = new Audio(getTakeStreamUrl(take));
-                            audio.play().catch(() => {});
-                          }}
-                          className="w-6 h-6 rounded-full bg-blue-100 hover:bg-blue-200 flex items-center justify-center transition-colors"
-                        >
-                          <svg className="w-3 h-3 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-4 text-gray-500 text-sm">
-                      Nenhum take gravado ainda
-                    </div>
-                  )}
-                  {scopedRecordings.length > 5 && (
-                    <div className="text-center py-2 text-xs text-gray-400 border-t border-gray-100">
-                      Mais {scopedRecordings.length - 5} takes não mostrados
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ===== MAIN 2-COLUMN LAYOUT ===== */}
-      <div className="flex-1 flex overflow-hidden bg-gray-50">
-        {/* LEFT COLUMN - 60% */}
-        <div className="w-[60%] flex flex-col border-r border-gray-100 bg-white">
-          {/* Video Player */}
-          <div className="flex-[1.5] p-4 flex flex-col">
-            <div className="relative flex-1 bg-black rounded-lg overflow-hidden shadow-lg">
-              <VideoPlayer
-                ref={videoRef}
-                src={production?.videoUrl}
-                isMuted={isMuted}
-                onMuteToggle={() => setIsMuted((m) => !m)}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onTimeUpdate={setVideoTime}
-                onDurationChange={setVideoDuration}
-                countdownValue={countdownValue}
-                loopInfo={loopInfo}
-                className="w-full h-full"
-              />
-              {/* Timecode Overlay */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 text-white font-mono text-sm px-3 py-1 rounded">
-                {formatTimecodeByFormat(videoTime, "HH:MM:SS:FF", 24)}
-              </div>
             </div>
-
-            {/* Director Controls / Dubber Status */}
-            <div className="mt-4 space-y-3">
-              {isDirectorView ? (
-                <>
-                  {/* Director Controls */}
-                  <div className="flex items-center justify-center gap-3">
-                    {/* Skip Backward 3s */}
+            <div className="px-6 py-5">
+              <audio ref={takePreviewAudioRef} preload="none" />
+              <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
+                {(isPrivileged ? takesList : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id)).map((take: any) => (
+                  <div key={take.id} className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <button
-                      className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors"
-                      onClick={handleSkipBackward}
-                      title="Voltar 3 segundos"
+                      onClick={() => {
+                        const audio = takePreviewAudioRef.current;
+                        if (!audio) return;
+                        if (takePreviewId === take.id) {
+                          audio.pause();
+                          audio.currentTime = 0;
+                          setTakePreviewId(null);
+                          return;
+                        }
+                        setTakePreviewId(take.id);
+                        audio.src = take.audioUrl;
+                        audio.play().catch(() => {});
+                      }}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
+                      style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.75)" }}
+                      data-testid={`button-play-take-${take.id}`}
                     >
-                      <SkipBack className="w-4 h-4 text-gray-700" />
+                      {takePreviewId === take.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                     </button>
-                    {/* Play */}
-                    <button
-                      className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors"
-                      onClick={handlePlayPause}
-                    >
-                      {isPlaying ? <Pause className="w-4 h-4 text-gray-700" /> : <Play className="w-4 h-4 text-gray-700" />}
-                    </button>
-                    {/* Recording Button */}
-                    <button
-                      onClick={handleRecordOrStop}
-                      className={cn(
-                        "w-10 h-10 rounded-lg border flex items-center justify-center transition-colors",
-                        recordingStatus === "recording" || recordingStatus === "countdown" || recordingStatus === "stopping"
-                          ? "bg-red-500 border-red-500 text-white animate-pulse" 
-                          : "border-gray-300 hover:bg-gray-50"
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>#{take.lineIndex}</span>
+                        <span className="text-xs font-medium truncate" style={{ color: "rgba(255,255,255,0.80)" }}>{take.characterName || "Take"}</span>
+                        <span className="ml-auto text-xs font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>{take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}</span>
+                      </div>
+                      {isPrivileged && (
+                        <div className="text-[10px] truncate mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                          {take.voiceActorName || take.userName || take.userId || take.voiceActorId}
+                        </div>
                       )}
-                      title={recordingStatus === "recording" ? "Parar gravação" : recordingStatus === "countdown" ? "Cancelar contagem" : recordingStatus === "stopping" ? "Parando..." : "Iniciar gravação"}
-                    >
-                      {recordingStatus === "recording" || recordingStatus === "countdown" || recordingStatus === "stopping" ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4 text-gray-700" />}
-                    </button>
-                    {/* Skip Forward 3s */}
+                    </div>
                     <button
-                      className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors"
-                      onClick={handleSkipForward}
-                      title="Avançar 3 segundos"
+                      onClick={() => handleDownloadTake(take)}
+                      className="p-2 rounded-lg transition-colors"
+                      style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.06)" }}
+                      title="Baixar take"
+                      data-testid={`button-download-take-popup-${take.id}`}
                     >
-                      <SkipForward className="w-4 h-4 text-gray-700" />
-                    </button>
-                    {/* Loop */}
-                    <button
-                      className={cn(
-                        "w-10 h-10 rounded-lg border flex items-center justify-center transition-colors",
-                        isLooping ? "bg-blue-500 border-blue-500 text-white" : "border-gray-300 hover:bg-gray-50"
-                      )}
-                      onClick={handleLoopButton}
-                    >
-                      <Repeat className="w-4 h-4" />
+                      <Download className="w-4 h-4" />
                     </button>
                   </div>
-                </>
-              ) : (
-                /* Dubber Status */
-                <div className="flex flex-col items-center gap-3 py-2">
-                  <span className={cn(
-                    "inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium animate-pulse",
-                    recordingStatus === "recording" ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-500"
-                  )}>
-                    <div className={cn("w-2 h-2 rounded-full", recordingStatus === "recording" ? "bg-red-500" : "bg-gray-400")} />
-                    {recordingStatus === "recording" ? "GRAVANDO" : "AGUARDANDO"}
-                  </span>
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                    <Mic className="w-8 h-8 text-gray-400" />
+                ))}
+                {takesList.length === 0 && (
+                  <div className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.40)" }}>
+                    Nenhum take gravado nesta sessao
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <header className="h-[52px] shrink-0 flex items-center justify-between px-5" style={{ background: "rgba(255,255,255,0.04)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="flex items-center gap-4">
+          <Link href={`/hub-dub/studio/${studioId}/sessions`}>
+            <button className="flex items-center gap-2 text-sm transition-colors" style={{ color: "rgba(255,255,255,0.45)" }} data-testid="button-exit-room">
+              <ArrowLeft className="w-4 h-4" />
+              Sair
+            </button>
+          </Link>
+          <div className="h-4 w-px" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="flex items-baseline gap-2">
+            <span className="font-medium text-sm" style={{ color: "hsl(210 40% 96%)" }}>{production?.name || "Carregando\u2026"}</span>
+            <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>{session?.title}</span>
+          </div>
+          {recordingStatus === "recording" && (
+            <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(0 72% 65%)", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)" }}>
+              <Circle className="w-2 h-2 fill-red-500 animate-pulse" /> REC
+            </span>
+          )}
+          {recordingStatus === "recorded" && (
+            <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(45 93% 55%)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
+              <AlertCircle className="w-3 h-3" /> Nao salvo
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 text-xs relative">
+          {isPrivileged && (
+            <>
+              <button
+                onClick={() => setControlMenuOpen((v) => !v)}
+                className="flex items-center gap-1.5 transition-colors"
+                style={{ color: controlMenuOpen ? "hsl(220 100% 70%)" : "rgba(255,255,255,0.45)" }}
+                data-testid="button-open-text-control"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                Texto
+              </button>
+              {controlMenuOpen && (
+                <div
+                  className="absolute right-0 top-[44px] z-50 w-[360px] rounded-xl overflow-hidden"
+                  style={{ background: "rgba(15,15,30,0.95)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
+                >
+                  <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <span className="text-xs font-semibold" style={{ color: "hsl(210 40% 96%)" }}>Controle do Texto</span>
+                    <button
+                      onClick={() => setControlMenuOpen(false)}
+                      className="transition-colors"
+                      style={{ color: "rgba(255,255,255,0.45)" }}
+                      data-testid="button-close-text-control"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.40)" }}>Usuarios online</span>
+                      <button
+                        onClick={() => {
+                          emitVideoEvent("revoke-all", {});
+                          setControlPermissions(new Set());
+                          setGlobalControlEnabled(false);
+                        }}
+                        className="text-[9px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors uppercase font-bold"
+                        data-testid="button-revoke-all-text-control"
+                      >
+                        Revogar todos
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
+                      {(presenceUsers.length ? presenceUsers : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || "Usuario", role: p.role }))).map((p: any) => {
+                        const targetRole = String(p.role || "").toLowerCase();
+                        const targetIsPrivileged = new Set(["studio_admin", "diretor", "engenheiro_audio", "platform_owner", "owner", "director", "audio_engineer", "engineer", "admin"]).has(targetRole);
+                        const granted = controlPermissions.has(p.userId);
+                        return (
+                          <div key={p.userId} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center text-[10px] font-bold shrink-0" style={{ color: "hsl(220 100% 65%)" }}>
+                                {String(p.name || "?")[0] || "?"}
+                              </div>
+                              <span className="truncate" style={{ color: "rgba(255,255,255,0.70)" }}>{p.name || "Usuario"}</span>
+                              <span className="text-[9px] px-1 rounded bg-white/5 uppercase shrink-0" style={{ color: "rgba(255,255,255,0.30)" }}>{p.role || ""}</span>
+                            </div>
+                            {p.userId !== user?.id && !targetIsPrivileged && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  emitVideoEvent(granted ? "revoke-permission" : "grant-permission", { targetUserId: p.userId });
+                                  setControlPermissions((prev) => {
+                                    const next = new Set(prev);
+                                    if (granted) next.delete(p.userId);
+                                    else next.add(p.userId);
+                                    return next;
+                                  });
+                                }}
+                                className="text-[10px] px-2 py-0.5 rounded transition-colors shrink-0"
+                                style={granted ? { background: "rgba(239,68,68,0.15)", color: "hsl(0 72% 65%)" } : { background: "rgba(59,130,246,0.15)", color: "hsl(220 100% 65%)" }}
+                                data-testid={`button-toggle-text-control-${p.userId}`}
+                              >
+                                {granted ? "Revogar" : "Conceder"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
+              <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+            </>
+          )}
+          {!micReady && (
+            <span className="flex items-center gap-1" style={{ color: "hsl(0 72% 65%)" }}>
+              <MicOff className="w-3.5 h-3.5" /> Sem mic
+            </span>
+          )}
+          {micReady && (
+            <span className="flex items-center gap-1" style={{ color: "hsl(160 84% 60%)" }}>
+              <Mic className="w-3.5 h-3.5" /> 48kHz / 24bit
+            </span>
+          )}
+          <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          {recordingProfile ? (
+            <div className="flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5" style={{ color: "hsl(220 100% 65%)" }} />
+              <span className="font-medium" style={{ color: "rgba(255,255,255,0.80)" }}>{recordingProfile.voiceActorName}</span>
+              <span style={{ color: "rgba(255,255,255,0.30)" }}>/</span>
+              {charactersList && charactersList.length > 1 ? (
+                <select
+                  value={recordingProfile.characterId}
+                  onChange={(e) => handleChangeCharacter(e.target.value)}
+                  className="font-medium bg-transparent border-none text-xs cursor-pointer focus:outline-none pr-1"
+                  style={{ color: "hsl(220 100% 65%)" }}
+                  data-testid="select-active-character"
+                >
+                  {charactersList.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="font-medium" style={{ color: "hsl(220 100% 65%)" }} data-testid="text-active-character">{recordingProfile.characterName}</span>
+              )}
+              <button
+                onClick={() => setShowProfilePanel(true)}
+                className="ml-1 transition-colors" style={{ color: "rgba(255,255,255,0.40)" }}
+                data-testid="button-edit-profile"
+                title="Editar perfil"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
             </div>
+          ) : (
+            <button
+              onClick={() => setShowProfilePanel(true)}
+              className="flex items-center gap-1.5 transition-colors" style={{ color: "hsl(45 93% 55%)" }}
+              data-testid="button-setup-profile"
+            >
+              <User className="w-3.5 h-3.5" />
+              Definir Perfil
+            </button>
+          )}
+          <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <button
+            onClick={() => setTakesPopupOpen(true)}
+            className="transition-colors"
+            style={{ color: "rgba(255,255,255,0.45)" }}
+            data-testid="button-open-takes-popup"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" style={{ color: "hsl(160 84% 60%)" }} />
+            {takeCount} take{takeCount !== 1 ? "s" : ""}
+          </button>
+          <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <button
+            onClick={() => setDeviceSettingsOpen(true)}
+            className="flex items-center gap-1.5 transition-colors" style={{ color: "rgba(255,255,255,0.45)" }}
+            data-testid="button-open-device-settings"
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            Dispositivos
+          </button>
+          <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <button
+            onClick={() => { setIsCustomizing(true); setPendingShortcuts(shortcuts); }}
+            className="flex items-center gap-1.5 transition-colors" style={{ color: "rgba(255,255,255,0.45)" }}
+            data-testid="button-open-shortcuts"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Atalhos
+          </button>
+        </div>
+      </header>
+
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex flex-col" style={{ width: "56%", borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex-1 relative overflow-hidden" style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)", margin: "4px 4px 0 4px", borderRadius: "12px" }}>
+            {production?.videoUrl ? (
+              <video
+                ref={videoRef}
+                src={production.videoUrl}
+                className="w-full h-full object-contain"
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                muted={isMuted}
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3" style={{ color: "rgba(255,255,255,0.35)" }}>
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)" }}>
+                  <Play className="w-7 h-7" />
+                </div>
+                <p className="text-xs">Nenhum video anexado a esta producao</p>
+              </div>
+            )}
+
+            {currentScriptLine && (
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-16 pb-5 px-8">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[11px] font-mono text-amber-300/90 bg-black/50 px-1.5 py-0.5 rounded">
+                    {formatTimecode(currentScriptLine.start)}
+                  </span>
+                  <span className="text-xs font-semibold text-blue-300 uppercase tracking-widest">
+                    {currentScriptLine.character}
+                  </span>
+                </div>
+                <p className="text-white text-lg font-light leading-snug">
+                  {currentScriptLine.text}
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={() => setIsMuted((m) => !m)}
+              className="absolute top-3 right-3 p-2 rounded-xl bg-black/40 text-zinc-400 hover:text-white transition-all hover:bg-black/60"
+              data-testid="button-mute"
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
           </div>
 
-          {/* Daily Meet Panel - Retrátil sem desconectar */}
-          <div className="h-80 flex flex-col border-t border-gray-100 min-h-0">
-            {/* Panel Header */}
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <PhoneCall className="w-4 h-4 text-blue-500" />
-                <h2 className="font-semibold text-gray-900">Chamada de Vídeo</h2>
-                <span className={cn(
-                  "w-2 h-2 rounded-full",
-                  dailyStatus === "conectado" ? "bg-green-500" : "bg-yellow-400 animate-pulse"
-                )} />
-              </div>
-              <div className="text-xs text-gray-500">
-                Use os controles do painel
+          {videoDuration > 0 && (
+            <div className="px-5 py-2" style={{ background: "rgba(255,255,255,0.03)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-3 text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>
+                <span>{formatTimecode(videoTime)}</span>
+                <div className="flex-1 relative h-1.5 rounded-full cursor-pointer group" style={{ background: "rgba(255,255,255,0.10)" }} onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  scrub((e.clientX - rect.left) / rect.width);
+                }}>
+                  {scriptLines.map((line, i) => (
+                    <div
+                      key={i}
+                      className={`absolute top-0 bottom-0 rounded-sm transition-all ${
+                        savedTakes.has(i) ? "bg-emerald-400/70" :
+                        i === currentLine ? "bg-blue-400/70" :
+                        ""
+                      }`}
+                      style={{
+                        left: `${(line.start / videoDuration) * 100}%`,
+                        width: `${Math.max(0.5, ((line.end! - line.start) / videoDuration) * 100)}%`,
+                        ...(!savedTakes.has(i) && i !== currentLine ? { background: "rgba(255,255,255,0.15)" } : {}),
+                      }}
+                    />
+                  ))}
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md"
+                    style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(220 100% 55%)", border: "2px solid rgba(255,255,255,0.80)", boxShadow: "0 0 8px rgba(59,130,246,0.4)" }}
+                  />
+                </div>
+                <span>{formatTimecode(videoDuration)}</span>
               </div>
             </div>
-            
-            {/* Daily Meet Content - Com Error Boundary */}
-            <div className="flex-1 overflow-hidden">
-              <div className="h-full">
-                {sessionId ? (
-                  <div className="h-full">
-                    <SafeDailyMeetPanel
-                      key={`daily-${sessionId}`}
-                      sessionId={sessionId}
-                      mode="embedded"
-                      open={dailyMeetOpen}
-                      onOpenChange={setDailyMeetOpen}
-                      onStatusChange={setDailyStatus}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500">
-                    <div className="text-center">
-                      <PhoneCall className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm">Aguardando sessão...</p>
-                    </div>
+          )}
+
+          <div className="h-24 shrink-0 px-5 flex items-center justify-between" style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="w-56 shrink-0 flex flex-col justify-center gap-1 h-full py-3">
+              <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
+                <span className="uppercase tracking-wider">
+                  {recordingStatus === "recording" ? "Ao Vivo" :
+                    recordingStatus === "previewing" ? "Reproduzindo" :
+                    recordingStatus === "recorded" ? "Gravado" :
+                    micReady ? "Monitorando" : "Sem microfone"}
+                </span>
+                {recordingStatus === "recording" && (
+                  <span className="flex items-center gap-1" style={{ color: "hsl(0 72% 65%)" }}>
+                    <Circle className="w-1.5 h-1.5 fill-red-500 animate-pulse" /> REC
+                  </span>
+                )}
+                {(recordingStatus === "recorded" || recordingStatus === "previewing") && lastRecording && (
+                  <div className="flex items-center gap-2">
+                    {qualityMetrics && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={
+                        qualityMetrics.score > 80 ? { background: "rgba(16,185,129,0.12)", color: "hsl(160 84% 60%)", border: "1px solid rgba(16,185,129,0.25)" } :
+                        qualityMetrics.score > 50 ? { background: "rgba(245,158,11,0.12)", color: "hsl(45 93% 55%)", border: "1px solid rgba(245,158,11,0.25)" } :
+                        { background: "rgba(239,68,68,0.12)", color: "hsl(0 72% 65%)", border: "1px solid rgba(239,68,68,0.25)" }
+                      }>
+                        {qualityMetrics.score}
+                      </span>
+                    )}
+                    <span className="font-mono" style={{ color: "hsl(45 93% 55%)" }}>{lastRecording.durationSeconds.toFixed(1)}s</span>
                   </div>
                 )}
               </div>
+              <MonitorPanel
+                micState={micState}
+                recordingStatus={recordingStatus}
+                lastRecording={lastRecording}
+                previewAudioRef={previewAudioRef}
+                savedSamples={null}
+              />
             </div>
-          </div>
-        </div>
 
-        {/* RIGHT COLUMN - 40% */}
-        <div className="w-[40%] flex flex-col bg-white">
-          {/* Script Section */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Script Header */}
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">Script</h2>
-              <div className="flex items-center gap-2">
-                <button onClick={() => changeScriptFontSize(-1)} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors text-xs font-bold">A-</button>
-                <button onClick={() => changeScriptFontSize(1)} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors text-sm font-bold">A+</button>
-              </div>
-            </div>
-            {/* Script Lines */}
-            <div ref={scriptViewportRef} className="flex-1 overflow-y-auto p-4 space-y-2">
-              {filteredScriptLines.map((line) => {
-                const i = line.originalIndex;
-                const isActive = i === currentLine;
-                const isDone = savedTakes.has(i);
-                const isEdited = lineOverrides[i] && Object.keys(lineOverrides[i]).length > 0;
-                return (
-                  <div
-                    key={i}
-                    ref={(el) => lineRefs.current[i] = el}
-                    onClick={() => { 
-                      if (!isEditingScript) {
-                        handleLineClick(i);
-                      }
-                    }}
-                    className={cn(
-                      "w-full text-left p-3 rounded-lg transition-all",
-                      isEditingScript ? "cursor-text" : "cursor-pointer",
-                      isActive && "bg-blue-50 border-l-4 border-blue-500 rounded-r-lg",
-                      !isActive && !isEditingScript && "hover:bg-gray-50",
-                      isDone && "bg-green-50/30",
-                      isEdited && !isActive && "bg-orange-50/30 border-l-2 border-orange-300",
-                      isEdited && isActive && "bg-orange-50 border-l-4 border-orange-400 rounded-r-lg",
-                      isEditingScript && "ring-2 ring-green-200"
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex flex-col items-center shrink-0 w-12">
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-400 font-mono">{i + 1}</span>
-                          {isEdited && !isEditingScript && (
-                            <SquarePen className="w-3 h-3 text-orange-500" />
-                          )}
-                        </div>
-                        {isEditingScript ? (
-                          <input
-                            type="text"
-                            className="text-xs text-blue-500 font-mono font-semibold bg-transparent border border-blue-200 rounded px-1 py-0.5 w-full text-center focus:outline-none focus:ring-1 focus:ring-blue-300"
-                            defaultValue={formatTimecodeByFormat(line.start || 0, "HH:MM:SS:FF", 24)}
-                            placeholder="00:00:00:00"
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={(e) => {
-                              const timecodeStr = e.target.value.trim();
-                              if (timecodeStr && timecodeStr !== formatTimecodeByFormat(line.start || 0, "HH:MM:SS:FF", 24)) {
-                                try {
-                                  const seconds = parseUniversalTimecodeToSeconds(timecodeStr);
-                                  if (!isNaN(seconds) && seconds >= 0) {
-                                    applyScriptLinePatch(i, { start: seconds });
-                                    emitTextControlEvent("text-control:update-line", { 
-                                      lineIndex: i, 
-                                      start: seconds,
-                                      history: { field: "timecode", before: formatTimecodeByFormat(line.start || 0, "HH:MM:SS:FF", 24), after: timecodeStr, by: user?.displayName || user?.fullName || "Usuário" }
-                                    });
-                                  }
-                                } catch (error) {
-                                  toast({ title: "Timecode inválido", description: "Use o formato HH:MM:SS:FF", variant: "destructive" });
-                                }
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span className="text-xs text-blue-500 font-mono font-semibold">
-                            {formatTimecodeByFormat(line.start || 0, "HH:MM:SS:FF", 24)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        {isEditingScript ? (
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              className="w-full text-sm font-bold text-blue-600 uppercase tracking-wider bg-transparent border border-blue-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                              defaultValue={line.character}
-                              placeholder="Personagem"
-                              onClick={(e) => e.stopPropagation()}
-                              onBlur={(e) => {
-                                if (e.target.value.trim() !== line.character) {
-                                  applyScriptLinePatch(i, { character: e.target.value.trim() });
-                                  emitTextControlEvent("text-control:update-line", { 
-                                    lineIndex: i, 
-                                    character: e.target.value.trim(),
-                                    history: { field: "character", before: line.character, after: e.target.value.trim(), by: user?.displayName || user?.fullName || "Usuário" }
-                                  });
-                                }
-                              }}
-                            />
-                            <textarea
-                              className="w-full text-base text-gray-900 leading-relaxed bg-transparent border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300"
-                              style={{ fontSize: `${scriptFontSize}px` }}
-                              defaultValue={line.text}
-                              placeholder="Texto da fala"
-                              onClick={(e) => e.stopPropagation()}
-                              onBlur={(e) => {
-                                if (e.target.value.trim() !== line.text) {
-                                  applyScriptLinePatch(i, { text: e.target.value.trim() });
-                                  emitTextControlEvent("text-control:update-line", { 
-                                    lineIndex: i, 
-                                    text: e.target.value.trim(),
-                                    history: { field: "text", before: line.text, after: e.target.value.trim(), by: user?.displayName || user?.fullName || "Usuário" }
-                                  });
-                                }
-                              }}
-                            />
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2">{line.character}</p>
-                            <p className="text-base text-gray-900 leading-relaxed" style={{ fontSize: `${scriptFontSize}px` }}>{line.text}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Script Action Buttons */}
-            <div className="p-4 border-t border-gray-100 flex items-center gap-2">
-              <button 
-                onClick={handleToggleAutoFollow}
-                className={`flex-1 px-3 py-2 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                  scriptAutoFollow 
-                    ? "bg-blue-50 border-blue-200 text-blue-700" 
-                    : "border-gray-200 text-gray-700 hover:bg-gray-50"
-                }`}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => seek(-2)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                data-testid="button-back-2s"
+                title={`Back 2s (${keyLabel(shortcuts.back)})`}
               >
-                <Scroll className="w-4 h-4" />
-                {scriptAutoFollow ? "Rolamento Auto" : "Rolamento Manual"}
+                <RotateCcw className="w-4 h-4" />
               </button>
-              <button 
-                onClick={() => setIsEditingScript(!isEditingScript)}
-                className={`flex-1 px-3 py-2 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                  isEditingScript 
-                    ? "bg-green-50 border-green-200 text-green-700" 
-                    : "border-gray-200 text-gray-700 hover:bg-gray-50"
-                }`}
+
+              <button
+                onClick={handlePlayPause}
+                className="w-11 h-11 rounded-full flex items-center justify-center transition-all" style={{ background: "rgba(255,255,255,0.08)", color: "hsl(210 40% 96%)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+                data-testid="button-play-pause"
+                title={`Play/Pause (${keyLabel(shortcuts.playPause)})`}
               >
-                <Edit className="w-4 h-4" />
-                {isEditingScript ? "Editando" : "Editar Texto"}
+                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
               </button>
-              <div className="flex-1 relative">
-                <select
-                  value={selectedCharacter}
-                  onChange={(e) => setSelectedCharacter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors appearance-none bg-white cursor-pointer"
+
+              <button
+                onClick={recordingStatus === "recording" ? handleStopRecording : handleStopPlayback}
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                data-testid="button-stop"
+                title={`Stop (${keyLabel(shortcuts.stop)})`}
+              >
+                <Square className="w-4 h-4" />
+              </button>
+
+              <div className="w-px h-8 mx-1" style={{ background: "rgba(255,255,255,0.10)" }} />
+
+              {recordingStatus === "idle" || recordingStatus === "countdown" ? (
+                <button
+                  onClick={startCountdown}
+                  disabled={!micReady || recordingStatus === "countdown"}
+                  className="w-14 h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-30"
+                  style={recordingStatus === "countdown"
+                    ? { background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.30)", cursor: "wait", color: "rgba(255,255,255,0.70)" }
+                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.70)" }
+                  }
+                  data-testid="button-record"
+                  title={`Record (${keyLabel(shortcuts.record)})`}
                 >
-                  <option value="todos">Todos Personagens</option>
-                  {uniqueCharacters.map(character => (
-                    <option key={character} value={character}>
-                      {character}
-                    </option>
-                  ))}
-                </select>
-                <Filter className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+                  <Mic className="w-5 h-5" />
+                </button>
+              ) : recordingStatus === "recording" ? (
+                <button
+                  onClick={handleStopRecording}
+                  className="w-14 h-14 rounded-full flex items-center justify-center transition-all"
+                  style={{ background: "hsl(0 72% 55%)", boxShadow: "0 0 24px rgba(239,68,68,0.4), 0 4px 12px rgba(0,0,0,0.3)" }}
+                  data-testid="button-stop-recording"
+                  title={`Stop recording (${keyLabel(shortcuts.stop)})`}
+                >
+                  <Square className="w-5 h-5 text-white fill-white" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handlePreview}
+                    className="w-11 h-11 rounded-full flex items-center justify-center transition-all"
+                    style={recordingStatus === "previewing"
+                      ? { background: "hsl(220 100% 55%)", color: "white", boxShadow: "0 0 16px rgba(59,130,246,0.3)" }
+                      : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.70)", border: "1px solid rgba(255,255,255,0.12)" }
+                    }
+                    data-testid="button-preview"
+                  >
+                    <Headphones className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSaveTake}
+                    disabled={isSaving}
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-white transition-all disabled:opacity-50"
+                    style={{ background: "hsl(160 84% 39%)", boxShadow: "0 0 16px rgba(16,185,129,0.3)" }}
+                    data-testid="button-save-take"
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleDiscard}
+                    className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+                    style={{ background: "rgba(239,68,68,0.08)", color: "rgba(239,68,68,0.60)", border: "1px solid rgba(239,68,68,0.15)" }}
+                    data-testid="button-discard-take"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
-      <AnimatePresence>
-        {isMobile && (
-          <>
-            <MobileMenu
-              open={mobileMenuOpen}
-              onOpenChange={setMobileMenuOpen}
-              overlayZIndex={UI_LAYER_BASE.mobileDrawerOverlay}
-              contentZIndex={UI_LAYER_BASE.mobileDrawerContent}
-              items={mobileMenuItems}
-            />
-            <button
-              onClick={() => setScriptOpen(true)}
-              className="fixed bottom-20 left-5 h-14 w-14 rounded-full flex items-center justify-center shadow-lg z-[90] bg-white border border-gray-200 md:hidden"
-            >
-              <Edit3 className="w-6 h-6" />
-            </button>
-            <MobileScriptDrawer
-              open={scriptOpen}
-              onOpenChange={setScriptOpen}
-              lines={displayedScriptLines}
-              currentLine={currentLine}
-              scriptFontSize={scriptFontSize}
-              onFontSizeChange={changeScriptFontSize}
-              savedTakes={savedTakes}
-              lockedLines={lockedLines}
-              liveDrafts={liveDrafts}
-              userId={user?.id}
-              presenceUsers={presenceUsers}
-              canTextControl={canTextControl}
-              formatTimecode={formatLiveTimecode}
-              onLineClick={handleLineClick}
-              onEditField={startInlineEdit}
-            />
-          </>
-        )}
-      </AnimatePresence>
+              <div className="w-px h-8 mx-1" style={{ background: "rgba(255,255,255,0.10)" }} />
 
-      {/* Session Access Blocking */}
-      {sessionAccessStatus && !sessionAccessStatus.canAccess && sessionAccessStatus.scheduledAt && (
-        <SessionBlockedScreen
-          scheduledAt={sessionAccessStatus.scheduledAt}
-          minutesUntilStart={sessionAccessStatus.minutesUntilStart || 0}
-          sessionTitle={sessionAccessStatus.sessionTitle || ""}
-          productionName={production?.name}
-        />
-      )}
+              <button
+                onClick={() => seek(2)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                data-testid="button-forward-2s"
+                title={`Forward 2s (${keyLabel(shortcuts.forward)})`}
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
 
-      {/* Hardware Setup Dialog */}
-      <HardwareSetupDialog open={hardwareDialogOpen} onOpenChange={setHardwareDialogOpen} sessionId={sessionId || ""} />
-
-      {/* Director Review Modal */}
-      {directorReviewModalOpen && reviewingTake && isDirector && (
-        <div className="fixed inset-0 bg-black/50 z-[150] flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6" data-testid="director-review-popup">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Revisar Take</h3>
               <button
                 onClick={() => {
-                  setDirectorReviewModalOpen(false);
-                  setReviewingTake(null);
+                  if (loopSelectionMode === "idle") {
+                    setLoopSelectionMode("selecting-start");
+                    setIsLooping(true);
+                    toast({ title: "Modo de Selecao de Loop", description: "Clique na primeira fala para iniciar o loop." });
+                  } else {
+                    setLoopSelectionMode("idle");
+                    setCustomLoop(null);
+                    setIsLooping(false);
+                    emitVideoEvent("sync-loop", { loopRange: null });
+                  }
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+                style={isLooping || loopSelectionMode !== "idle"
+                  ? { background: "rgba(59,130,246,0.12)", color: "hsl(220 100% 65%)", boxShadow: "0 0 0 1px rgba(59,130,246,0.30)" }
+                  : { color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }
+                }
+                data-testid="button-loop"
+                title={`Toggle loop (${keyLabel(shortcuts.loop)})`}
               >
-                <X className="w-5 h-5" />
+                <Repeat className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              {/* Take Info */}
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-medium">
-                    {reviewingTake.character?.charAt(0) || "T"}
+            <div className="w-44 shrink-0 flex flex-col items-end gap-1.5">
+              {isLooping && (
+                <div className="flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                    <span>Pre-roll</span>
+                    <div className="flex gap-0.5">
+                      {[0.5, 1, 2, 3].map((v) => (
+                        <button
+                          key={v}
+                          onClick={() => setPreRoll(v)}
+                          className="px-1.5 py-0.5 rounded text-[10px] transition-colors"
+                          style={preRoll === v
+                            ? { background: "rgba(59,130,246,0.12)", color: "hsl(220 100% 65%)", border: "1px solid rgba(59,130,246,0.25)" }
+                            : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)" }
+                          }
+                          data-testid={`preroll-${v}`}
+                        >
+                          {v}s
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{reviewingTake.character || "Personagem"}</p>
-                    <p className="text-sm text-gray-500">Linha {reviewingTake.lineIndex + 1}</p>
+                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                    <span>Post-roll</span>
+                    <div className="flex gap-0.5">
+                      {[0.5, 1, 2, 3].map((v) => (
+                        <button
+                          key={v}
+                          onClick={() => setPostRoll(v)}
+                          className="px-1.5 py-0.5 rounded text-[10px] transition-colors"
+                          style={postRoll === v
+                            ? { background: "rgba(59,130,246,0.12)", color: "hsl(220 100% 65%)", border: "1px solid rgba(59,130,246,0.25)" }
+                            : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)" }
+                          }
+                          data-testid={`postroll-${v}`}
+                        >
+                          {v}s
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="text-sm text-gray-600">
-                  <p>Duração: {Math.round(reviewingTake.duration * 10) / 10}s</p>
-                  <p>Qualidade: {Math.round((reviewingTake.metrics?.score || 0) * 100)}%</p>
-                </div>
-              </div>
-
-              {/* Audio Player */}
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <audio 
-                  controls 
-                  src={reviewingTake.audioUrl}
-                  className="w-full"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleRejectLocalTake(reviewingTake)}
-                  disabled={isDirectorSaving}
-                  className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  {isDirectorSaving ? "Processando..." : "Rejeitar"}
-                </button>
-                <button
-                  onClick={() => handleApproveLocalTake(reviewingTake)}
-                  disabled={isDirectorSaving}
-                  className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  {isDirectorSaving ? "Salvando..." : "Aprovar"}
-                </button>
-              </div>
+              )}
+              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.40)" }}>
+                {savedTakes.size} / {scriptLines.length} linhas salvas
+              </p>
             </div>
           </div>
         </div>
-      )}
+
+        <div className="flex flex-col" style={{ width: "44%", background: "rgba(255,255,255,0.02)" }}>
+          <div className="h-11 shrink-0 px-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)" }}>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.40)" }}>
+              Roteiro
+            </span>
+            <span className="text-xs" style={{ color: "rgba(255,255,255,0.40)" }}>
+              <span className="font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>{currentLine + 1}</span>
+              {" "}/{" "}
+              {scriptLines.length}
+            </span>
+          </div>
+
+          <div ref={scriptViewportRef} className="flex-1 overflow-y-auto py-3 px-4 min-h-0" style={{ scrollBehavior: "auto" }}>
+            {scriptLines.length === 0 && !session && (
+              <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: "rgba(255,255,255,0.40)" }}>
+                <div className="w-10 h-10 rounded-full animate-spin" style={{ border: "2px solid rgba(255,255,255,0.10)", borderTopColor: "hsl(220 100% 55%)" }} />
+                <p className="text-sm">Carregando sessao...</p>
+              </div>
+            )}
+            {scriptLines.length === 0 && session && (
+              <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: "rgba(255,255,255,0.40)" }}>
+                <p className="text-sm">Nenhum roteiro carregado</p>
+                <p className="text-xs">Adicione um roteiro a producao para ver as falas aqui</p>
+              </div>
+            )}
+            {scriptLines.map((line, i) => {
+              const isActive = i === currentLine;
+              const isDone = savedTakes.has(i);
+              const isInLoop = customLoop && line.start >= customLoop.start && (line.end || line.start) <= customLoop.end;
+              const lineTakes = takesList.filter((t: any) => t.lineIndex === i);
+              return (
+                <div
+                  key={i}
+                  ref={(el) => { lineRefs.current[i] = el; }}
+                  onClick={() => handleLineClick(i)}
+                  className="mb-3 px-5 py-4 lg:px-6 lg:py-5 rounded-xl cursor-pointer transition-all duration-300 relative overflow-hidden"
+                  style={{
+                    background: isActive ? "rgba(59, 130, 246, 0.08)" : (isInLoop ? "rgba(59, 130, 246, 0.04)" : "transparent"),
+                    ...(isActive ? { boxShadow: "0 0 0 1px rgba(59,130,246,0.25), 0 0 12px rgba(59,130,246,0.08)" } : {}),
+                    ...(isInLoop && !isActive ? { boxShadow: "inset 0 0 0 1px rgba(59,130,246,0.15)" } : {}),
+                  }}
+                  data-testid={`script-line-${i}`}
+                >
+                  {isInLoop && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500/40" />
+                  )}
+                  <div className="flex items-center gap-3 mb-2 lg:mb-3">
+                    <span className="text-[16px] lg:text-[16px] font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>
+                      {formatTimecode(line.start)}
+                    </span>
+                    <span
+                      className="text-[24px] lg:text-[32px] font-extrabold uppercase tracking-[0.5px] transition-colors leading-tight"
+                      style={{ color: isActive ? "hsl(220 100% 65%)" : "rgba(255,255,255,0.35)" }}
+                    >
+                      {line.character}
+                    </span>
+                    {canControl && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingLineIndex(i);
+                          setEditingLineText(lineEdits[i] ?? line.text);
+                        }}
+                        className="ml-1 p-1 rounded transition-colors"
+                        style={{ color: "rgba(255,255,255,0.40)" }}
+                        title="Editar fala"
+                        data-testid={`button-edit-line-${i}`}
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {isDone && (
+                      <span className="ml-auto flex items-center gap-1.5 text-[16px] font-medium" style={{ color: "hsl(160 84% 60%)" }}>
+                        <CheckCircle2 className="w-5 h-5" /> Salvo
+                      </span>
+                    )}
+                    {lineTakes.length > 0 && !isDone && (
+                      <span className="ml-auto text-[16px]" style={{ color: "rgba(255,255,255,0.40)" }}>
+                        {lineTakes.length} take{lineTakes.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {editingLineIndex === i ? (
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <textarea
+                        value={editingLineText}
+                        onChange={(e) => setEditingLineText(e.target.value)}
+                        className="w-full rounded-lg p-3 text-[16px] lg:text-[18px] leading-relaxed bg-black/30 border border-white/10 focus:border-blue-500 outline-none"
+                        style={{ color: "hsl(210 40% 96%)" }}
+                        rows={3}
+                        data-testid={`textarea-edit-line-${i}`}
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                        <button
+                          onClick={() => {
+                            setEditingLineIndex(null);
+                            setEditingLineText("");
+                          }}
+                          className="vhub-btn-xs vhub-btn-secondary"
+                          data-testid={`button-cancel-edit-line-${i}`}
+                          disabled={updateScriptLineMutation.isPending}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={() => updateScriptLineMutation.mutate({ lineIndex: i, text: editingLineText })}
+                          className="vhub-btn-xs vhub-btn-primary"
+                          data-testid={`button-save-edit-line-${i}`}
+                          disabled={updateScriptLineMutation.isPending}
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[22px] lg:text-[30px] leading-[1.7] transition-colors" style={{
+                      color: isActive ? "hsl(210 40% 96%)" : "rgba(255,255,255,0.45)",
+                      fontWeight: isActive ? 500 : 400,
+                    }}>
+                      {lineEdits[i] ?? line.text}
+                    </p>
+                  )}
+                  {lineTakes.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1">
+                      {lineTakes.map((take: any) => (
+                        <div key={take.id} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg" style={{ background: "rgba(255,255,255,0.04)" }}>
+                          <span className="font-mono" style={{ color: "rgba(255,255,255,0.50)" }}>
+                            {take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}
+                          </span>
+                          <span className="truncate" style={{ color: "rgba(255,255,255,0.60)" }}>
+                            {take.characterName || "Take"}
+                          </span>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDownloadTake(take); }}
+                              className="p-1 rounded transition-colors"
+                              style={{ color: "rgba(255,255,255,0.40)" }}
+                              title="Baixar take"
+                              data-testid={`button-download-take-${take.id}`}
+                            >
+                              <Download className="w-3 h-3" />
+                            </button>
+                            {(take.userId === user?.id || take.voiceActorId === user?.id) && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteTakeMutation.mutate(take.id); }}
+                                className="p-1 rounded transition-colors"
+                                style={{ color: "rgba(239,68,68,0.60)" }}
+                                title="Excluir take"
+                                data-testid={`button-delete-take-${take.id}`}
+                                disabled={deleteTakeMutation.isPending}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <DailyMeetPanel sessionId={sessionId} />
+        </div>
+      </div>
     </div>
   );
 }

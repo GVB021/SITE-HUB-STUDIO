@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { authFetch } from "@studio/lib/auth-fetch";
 import {
   Users, CheckCircle2, XCircle, Loader2, UserPlus, Pencil,
-  BarChart3, Film, Calendar, Mic2, Shield, Trash2, Download, Settings, Activity
+  BarChart3, Film, Calendar, Mic2, Shield, Trash2, Download
 } from "lucide-react";
 import { Button } from "@studio/components/ui/button";
 import { Badge } from "@studio/components/ui/badge";
@@ -23,14 +23,14 @@ import {
 import { pt } from "@studio/lib/i18n";
 import { useToast } from "@studio/hooks/use-toast";
 import { useStudioRole } from "@studio/hooks/use-studio-role";
-import { useAuth } from "@studio/hooks/use-auth";
 import { format } from "date-fns";
-import { Link } from "wouter";
 
 const STUDIO_ROLES = [
-  { value: "admin", label: pt.roles.admin },
-  { value: "director", label: pt.roles.director },
-  { value: "dubber", label: pt.roles.dubber },
+  { value: "studio_admin", label: pt.roles.studio_admin },
+  { value: "diretor", label: pt.roles.diretor },
+  { value: "engenheiro_audio", label: pt.roles.engenheiro_audio },
+  { value: "dublador", label: pt.roles.dublador },
+  { value: "aluno", label: "Aluno" },
 ];
 
 const PRODUCTION_STATUSES = [
@@ -46,16 +46,12 @@ const SESSION_STATUSES = [
   { value: "cancelled", label: "Cancelada" },
 ];
 
-type AdminTab = "overview" | "pending" | "members" | "productions" | "sessions" | "takes" | "settings";
-type TimecodeFormat = "HH:MM:SS" | "HH:MM:SS:MMM" | "HH:MM:SS:FF";
+type AdminTab = "overview" | "pending" | "members" | "productions" | "sessions" | "takes";
 
 const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { canManageMembers } = useStudioRole(studioId);
-  const { user } = useAuth();
-  const isOwner = user?.role === "owner";
-  const isPlatformOwner = user?.role === "owner";
   const [activeTab, setActiveTab] = useState<AdminTab>("overview");
 
   const [selectedRoles, setSelectedRoles] = useState<Record<string, string[]>>({});
@@ -110,28 +106,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
     enabled: activeTab === "takes",
   });
 
-  const { data: timecodeSettings, isLoading: timecodeLoading } = useQuery<{ format: TimecodeFormat }>({
-    queryKey: ["/api/studios", studioId, "timecode-format"],
-    queryFn: () => authFetch(`/api/studios/${studioId}/timecode-format`),
-    enabled: activeTab === "settings",
-  });
-
-  const updateTimecodeMutation = useMutation({
-    mutationFn: async (format: TimecodeFormat) => {
-      return authFetch(`/api/studios/${studioId}/timecode-format`, {
-        method: "PUT",
-        body: JSON.stringify({ format }),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/studios", studioId, "timecode-format"] });
-      toast({ title: "Formato de timecode atualizado" });
-    },
-    onError: (err: any) => {
-      toast({ title: "Falha ao salvar timecode", description: err?.message, variant: "destructive" });
-    },
-  });
-
   const approveMutation = useMutation({
     mutationFn: async ({ membershipId, roles }: { membershipId: string; roles: string[] }) => {
       return authFetch(`/api/studios/${studioId}/members/${membershipId}/approve`, {
@@ -177,7 +151,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
 
   const removeMemberMutation = useMutation({
     mutationFn: async (membershipId: string) => {
-      if (!isPlatformOwner) throw new Error("Somente PLATFORM_OWNER pode remover membros.");
       return authFetch(`/api/studios/${studioId}/members/${membershipId}`, { method: "DELETE" });
     },
     onSuccess: () => {
@@ -228,7 +201,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
 
   const deleteProductionMutation = useMutation({
     mutationFn: async (id: string) => {
-      if (!isPlatformOwner) throw new Error("Somente PLATFORM_OWNER pode excluir produções.");
       return authFetch(`/api/studios/${studioId}/productions/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
@@ -285,7 +257,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
 
   const deleteSessionMutation = useMutation({
     mutationFn: async (id: string) => {
-      if (!isPlatformOwner) throw new Error("Somente PLATFORM_OWNER pode excluir sessões.");
       return authFetch(`/api/studios/${studioId}/sessions/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
@@ -311,29 +282,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
 
   const approvedMembers = members?.filter((m: any) => m.status === "approved") || [];
 
-  // Helper function to check if session is blocked
-  const isSessionBlocked = (session: any) => {
-    if (!session.scheduledAt) return false;
-    const now = new Date();
-    const scheduledTime = new Date(session.scheduledAt);
-    return scheduledTime > now;
-  };
-
-  const getTimeUntilStart = (session: any) => {
-    if (!session.scheduledAt) return null;
-    const now = new Date();
-    const scheduledTime = new Date(session.scheduledAt);
-    if (scheduledTime <= now) return null;
-    
-    const timeUntilStart = scheduledTime.getTime() - now.getTime();
-    const minutesUntilStart = Math.ceil(timeUntilStart / (1000 * 60));
-    
-    if (minutesUntilStart < 60) return `${minutesUntilStart}min`;
-    const hours = Math.floor(minutesUntilStart / 60);
-    const mins = minutesUntilStart % 60;
-    return `${hours}h${mins > 0 ? ` ${mins}min` : ''}`;
-  };
-
   const tabs: { key: AdminTab; label: string; icon: typeof BarChart3; count?: number }[] = [
     { key: "overview", label: "Visao Geral", icon: BarChart3 },
     { key: "pending", label: "Cadastros Pendentes", icon: UserPlus, count: pendingMembers?.length || 0 },
@@ -341,7 +289,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
     { key: "productions", label: "Producoes", icon: Film, count: productions?.length || 0 },
     { key: "sessions", label: "Sessoes", icon: Calendar, count: sessions?.length || 0 },
     { key: "takes", label: "Takes de Audio", icon: Mic2 },
-    { key: "settings", label: "Configuracoes", icon: Settings },
   ];
 
   return (
@@ -351,21 +298,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
         title="Painel do Estudio"
         subtitle="Gerencie membros, producoes e sessoes do seu estudio"
       />
-
-      {/* Admin Avançado Link - apenas para admin */}
-      {canManageMembers && (
-        <div className="mb-6">
-          <Link to={`/hub-dub/studio/${studioId}/admin/main`}>
-            <Button className="gap-2" variant="default">
-              <Activity className="w-4 h-4" />
-              Painel Avançado do Estúdio
-            </Button>
-          </Link>
-          <p className="text-xs text-muted-foreground mt-1">
-            Controle total de hardware, monitoramento e eventos em tempo real
-          </p>
-        </div>
-      )}
 
       <div className="flex flex-col lg:flex-row gap-6">
         <nav className="lg:w-56 shrink-0">
@@ -406,7 +338,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <StatCard label="Membros" value={stats?.members ?? 0} icon={<Users className="w-4 h-4 text-primary" />} />
-                  <StatCard label="Pendentes" value={stats?.pendingMembers ?? 0} icon={<UserPlus className="w-4 h-4 text-blue-500" />} />
+                  <StatCard label="Pendentes" value={stats?.pendingMembers ?? 0} icon={<UserPlus className="w-4 h-4 text-amber-500" />} />
                   <StatCard label="Producoes" value={stats?.productions ?? 0} icon={<Film className="w-4 h-4 text-violet-500" />} />
                   <StatCard label="Sessoes" value={stats?.sessions ?? 0} icon={<Calendar className="w-4 h-4 text-emerald-500" />} />
                   <StatCard label="Takes" value={stats?.takes ?? 0} icon={<Mic2 className="w-4 h-4 text-rose-500" />} />
@@ -418,7 +350,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
           {activeTab === "pending" && (
             <div className="space-y-4 page-enter">
               <div className="flex items-center gap-2 mb-2">
-                <UserPlus className="w-4 h-4 text-blue-500" />
+                <UserPlus className="w-4 h-4 text-amber-500" />
                 <h3 className="text-sm font-semibold text-foreground">Cadastros Pendentes</h3>
                 {(pendingMembers?.length ?? 0) > 0 && (
                   <Badge variant="secondary">{pendingMembers.length}</Badge>
@@ -433,7 +365,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
                   <div key={m.id} className="vhub-card p-4" data-testid={`pending-member-${m.id}`}>
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-blue-500/15 ring-1 ring-blue-500/30 flex items-center justify-center text-blue-500 font-bold text-sm shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-amber-500/15 ring-1 ring-amber-500/30 flex items-center justify-center text-amber-500 font-bold text-sm shrink-0">
                           {(m.user?.fullName || m.user?.email || "?").charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -530,16 +462,14 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </Button>
-                              {isPlatformOwner && (
-                                <Button
-                                  size="icon" variant="ghost"
-                                  className="text-destructive hover:bg-destructive/10"
-                                  onClick={() => setRemoveMemberConfirm(m)}
-                                  data-testid={`button-remove-member-${m.id}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
+                              <Button
+                                size="icon" variant="ghost"
+                                className="text-destructive hover:bg-destructive/10"
+                                onClick={() => setRemoveMemberConfirm(m)}
+                                data-testid={`button-remove-member-${m.id}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
                             </div>
                           )}
                         </div>
@@ -594,16 +524,14 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </Button>
-                          {isPlatformOwner && (
-                            <Button
-                              size="icon" variant="ghost"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => setDeleteProductionConfirm(p)}
-                              data-testid={`button-delete-production-${p.id}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
+                          <Button
+                            size="icon" variant="ghost"
+                            className="text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteProductionConfirm(p)}
+                            data-testid={`button-delete-production-${p.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -646,58 +574,37 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
                     <span className="vhub-col-label w-20"></span>
                   </div>
                   <div className="divide-y divide-border/40">
-                    {sessions.map((s: any) => {
-                      const blocked = isSessionBlocked(s);
-                      const timeUntilStart = getTimeUntilStart(s);
-                      
-                      return (
-                        <div key={s.id} className="vhub-table-row" data-testid={`session-${s.id}`}>
-                          <span className="text-sm font-medium text-foreground flex-1 truncate">
-                            {s.title}
-                            {blocked && (
-                              <Badge variant="destructive" className="ml-2 text-xs">
-                                Bloqueada
-                              </Badge>
-                            )}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {s.scheduledAt ? format(new Date(s.scheduledAt), "dd/MM/yy HH:mm") : "-"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{s.durationMinutes}min</span>
-                          <div className="flex items-center gap-1">
-                            <StatusBadge status={s.status || "scheduled"} />
-                            {blocked && timeUntilStart && (
-                              <span className="text-xs text-orange-600 font-medium">
-                                {timeUntilStart}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon" variant="ghost"
-                              onClick={() => {
-                                setEditSession(s);
-                                const dt = s.scheduledAt ? new Date(s.scheduledAt).toISOString().slice(0, 16) : "";
-                                setEditSessionForm({ title: s.title, scheduledAt: dt, durationMinutes: String(s.durationMinutes || 60), status: s.status || "scheduled" });
-                              }}
-                              data-testid={`button-edit-session-${s.id}`}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                          {isPlatformOwner && (
-                            <Button
-                              size="icon" variant="ghost"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => setDeleteSessionConfirm(s)}
-                              data-testid={`button-delete-session-${s.id}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
+                    {sessions.map((s: any) => (
+                      <div key={s.id} className="vhub-table-row" data-testid={`session-${s.id}`}>
+                        <span className="text-sm font-medium text-foreground flex-1 truncate">{s.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {s.scheduledAt ? format(new Date(s.scheduledAt), "dd/MM/yy HH:mm") : "-"}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{s.durationMinutes}min</span>
+                        <StatusBadge status={s.status || "scheduled"} />
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon" variant="ghost"
+                            onClick={() => {
+                              setEditSession(s);
+                              const dt = s.scheduledAt ? new Date(s.scheduledAt).toISOString().slice(0, 16) : "";
+                              setEditSessionForm({ title: s.title, scheduledAt: dt, durationMinutes: String(s.durationMinutes || 60), status: s.status || "scheduled" });
+                            }}
+                            data-testid={`button-edit-session-${s.id}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            size="icon" variant="ghost"
+                            className="text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteSessionConfirm(s)}
+                            data-testid={`button-delete-session-${s.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </div>
-                    );
-                    })}
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -756,42 +663,6 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
               )}
             </div>
           )}
-
-          {activeTab === "settings" && (
-            <div className="space-y-4 page-enter">
-              <div className="flex items-center gap-2 mb-2">
-                <Settings className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">Configuração de Timecode</h3>
-              </div>
-              <div className="vhub-card p-5 space-y-4">
-                <p className="text-xs text-muted-foreground">
-                  Defina o formato padrão de timecode usado no RecordingRoom deste estúdio.
-                </p>
-                {timecodeLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Carregando configuração
-                  </div>
-                ) : (
-                  <div className="max-w-sm">
-                    <Select
-                      value={timecodeSettings?.format || "HH:MM:SS"}
-                      onValueChange={(value) => updateTimecodeMutation.mutate(value as TimecodeFormat)}
-                    >
-                      <SelectTrigger data-testid="select-timecode-format">
-                        <SelectValue placeholder="Selecione o formato de timecode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="HH:MM:SS">00:00:00 (HH:MM:SS)</SelectItem>
-                        <SelectItem value="HH:MM:SS:MMM">00:00:00:000 (HH:MM:SS:MMM)</SelectItem>
-                        <SelectItem value="HH:MM:SS:FF">00:00:00:00 (HH:MM:SS:FF)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -832,7 +703,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isPlatformOwner && !!removeMemberConfirm} onOpenChange={v => { if (!v) setRemoveMemberConfirm(null); }}>
+      <Dialog open={!!removeMemberConfirm} onOpenChange={v => { if (!v) setRemoveMemberConfirm(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remover Membro</DialogTitle>
@@ -897,7 +768,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isPlatformOwner && !!deleteProductionConfirm} onOpenChange={v => { if (!v) setDeleteProductionConfirm(null); }}>
+      <Dialog open={!!deleteProductionConfirm} onOpenChange={v => { if (!v) setDeleteProductionConfirm(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Excluir Producao</DialogTitle>
@@ -963,7 +834,7 @@ const StudioAdmin = memo(function StudioAdmin({ studioId }: { studioId: string }
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isPlatformOwner && !!deleteSessionConfirm} onOpenChange={v => { if (!v) setDeleteSessionConfirm(null); }}>
+      <Dialog open={!!deleteSessionConfirm} onOpenChange={v => { if (!v) setDeleteSessionConfirm(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Excluir Sessao</DialogTitle>

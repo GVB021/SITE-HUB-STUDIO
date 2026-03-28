@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
-import { getHighestStudioRole, normalizePlatformRole, normalizeStudioRole, isDirectorRole } from "@shared/roles";
 
 export interface AuthUser {
   id: string;
@@ -29,9 +28,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const platformRole = normalizePlatformRole(sessionUser.role);
-  sessionUser.role = platformRole;
-  if (sessionUser.status === "pending" && platformRole !== "owner") {
+  if (sessionUser.status === "pending" && sessionUser.role !== "platform_owner") {
     return res.status(403).json({ message: "Conta aguardando aprovacao" });
   }
 
@@ -44,19 +41,33 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = req.user as any;
-  const platformRole = normalizePlatformRole(user?.role);
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  if (platformRole !== "owner" && !isMaster) {
+  if (user?.role !== "platform_owner") {
     logger.warn("Unauthorized admin access attempt", { userId: user?.id, path: req.path });
-    return res.status(403).json({ message: "Forbidden: owner role required" });
+    return res.status(403).json({ message: "Forbidden: platform_owner role required" });
   }
   next();
 }
 
+export const ROLE_HIERARCHY: Record<string, number> = {
+  platform_owner: 100,
+  studio_admin: 80,
+  diretor: 60,
+  engenheiro_audio: 40,
+  dublador: 20,
+  aluno: 10,
+};
+
 export function getHighestRole(roles: string[]): string {
-  return getHighestStudioRole(roles);
+  let highest = roles[0] || "";
+  let highestLevel = ROLE_HIERARCHY[highest] ?? 0;
+  for (const r of roles) {
+    const level = ROLE_HIERARCHY[r] ?? 0;
+    if (level > highestLevel) {
+      highest = r;
+      highestLevel = level;
+    }
+  }
+  return highest;
 }
 
 export async function requireStudioAccess(req: Request, res: Response, next: NextFunction) {
@@ -66,18 +77,15 @@ export async function requireStudioAccess(req: Request, res: Response, next: Nex
   const user = req.user as any;
   if (!user) return res.status(401).json({ message: "Unauthorized" });
 
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  if (normalizePlatformRole(user.role) === "owner" || isMaster) {
-    req.studioRole = "owner";
-    req.studioRoles = ["owner"];
+  if (user.role === "platform_owner") {
+    req.studioRole = "platform_owner";
+    req.studioRoles = ["platform_owner"];
     return next();
   }
 
   try {
     const { storage } = await import("../storage");
-    const roles = (await storage.getUserRolesInStudio(user.id, studioId)).map(normalizeStudioRole);
+    const roles = await storage.getUserRolesInStudio(user.id, studioId);
     if (roles.length === 0) {
       logger.warn("Unauthorized studio access attempt", { userId: user.id, studioId });
       return res.status(403).json({ message: "Voce nao tem acesso a este estudio" });
@@ -99,35 +107,20 @@ export function requireStudioRole(...allowedRoles: string[]) {
     const user = req.user as any;
     if (!user) return res.status(401).json({ message: "Unauthorized" });
 
-    const email = String(user?.email || "").toLowerCase().trim();
-    const isMaster = email === "borbaggabriel@gmail.com";
-
-    if (normalizePlatformRole(user.role) === "owner" || isMaster) {
-      req.studioRole = "owner";
-      req.studioRoles = ["owner"];
+    if (user.role === "platform_owner") {
+      req.studioRole = "platform_owner";
+      req.studioRoles = ["platform_owner"];
       return next();
     }
 
     try {
       const { storage } = await import("../storage");
-      const roles = (await storage.getUserRolesInStudio(user.id, studioId)).map(normalizeStudioRole);
+      const roles = await storage.getUserRolesInStudio(user.id, studioId);
       if (roles.length === 0) {
         return res.status(403).json({ message: "Voce nao tem acesso a este estudio" });
       }
 
-      const normalizedAllowed = allowedRoles.map(normalizeStudioRole);
-      
-      // Simplify logic: If user is Director and the route requires a Director role, allow.
-      const userIsDirector = roles.some(r => isDirectorRole(r));
-      const routeRequiresDirector = normalizedAllowed.some(r => isDirectorRole(r));
-
-      if (userIsDirector && routeRequiresDirector) {
-        req.studioRoles = roles;
-        req.studioRole = getHighestRole(roles);
-        return next();
-      }
-
-      const hasPermission = roles.some(r => normalizedAllowed.includes(r as any));
+      const hasPermission = roles.some(r => allowedRoles.includes(r));
       if (!hasPermission) {
         return res.status(403).json({ message: "Voce nao tem permissao para esta acao" });
       }

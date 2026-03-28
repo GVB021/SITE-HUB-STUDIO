@@ -60,10 +60,10 @@ export default function StudioSelect() {
               <Building2 className="w-5 h-5 text-muted-foreground/50" />
             </div>
             <h3 className="font-semibold text-foreground mb-1" data-testid="text-no-studios">
-              {user.role === "owner" ? pt.studio.noStudios : pt.studio.noStudiosUser}
+              {user.role === "platform_owner" ? pt.studio.noStudios : pt.studio.noStudiosUser}
             </h3>
             <p className="vhub-body text-muted-foreground">
-              {user.role === "owner"
+              {user.role === "platform_owner"
                 ? "Crie estudios pelo painel administrativo."
                 : pt.studio.noStudiosUserDesc}
             </p>

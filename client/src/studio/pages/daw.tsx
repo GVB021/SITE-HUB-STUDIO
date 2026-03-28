@@ -47,7 +47,7 @@ function qualityBadgeStyles(score: number | null | undefined) {
     return "bg-emerald-500/20 text-emerald-300 border-emerald-400/40";
   }
   if (score >= 3) {
-    return "bg-blue-500/20 text-blue-300 border-blue-400/40";
+    return "bg-amber-500/20 text-amber-300 border-amber-400/40";
   }
   return "bg-rose-500/20 text-rose-300 border-rose-400/40";
 }
@@ -68,16 +68,7 @@ export default function Daw({ studioId }: { studioId: string }) {
     queryFn: () => authFetch(`/api/productions/${productionId}/timeline`),
     enabled: Boolean(productionId),
     refetchInterval: 15000,
-    retry: false, // Don't retry automatically on 404
   });
-
-  // Track the last successfully loaded productionId to avoid empty state during re-fetches
-  const [lastLoadedProductionId, setLastLoadedProductionId] = useState("");
-  useEffect(() => {
-    if (timelineQuery.data?.productionId === productionId) {
-      setLastLoadedProductionId(productionId);
-    }
-  }, [timelineQuery.data, productionId]);
 
   const bounceMutation = useMutation({
     mutationFn: async (mode: "full_track" | "multitrack") => {
@@ -181,33 +172,10 @@ export default function Daw({ studioId }: { studioId: string }) {
           </div>
         </div>
 
-        {!productionId ? (
-          <div className="h-40 flex flex-col items-center justify-center text-white/40 gap-2">
-            <Music4 className="h-6 w-6" />
-            Selecione uma producao para ver a timeline.
-          </div>
-        ) : timelineQuery.isLoading ? (
+        {timelineQuery.isLoading ? (
           <div className="h-40 flex items-center justify-center text-white/60">
             <Loader2 className="h-5 w-5 animate-spin mr-2" />
             Carregando timeline...
-          </div>
-        ) : timelineQuery.isError ? (
-          <div className="h-40 flex flex-col items-center justify-center text-white/40 gap-2 px-6 text-center">
-            <Music4 className="h-6 w-6 text-rose-500/50" />
-            <div className="space-y-1">
-              <p className="text-white/80 font-medium">Falha ao carregar timeline</p>
-              <p className="text-xs text-white/40 max-w-xs mx-auto">
-                {(timelineQuery.error as any)?.message || "Ocorreu um erro inesperado ao buscar os dados da producao."}
-              </p>
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-2 border-white/10 text-white/60 hover:text-white"
-              onClick={() => timelineQuery.refetch()}
-            >
-              Tentar novamente
-            </Button>
           </div>
         ) : tracks.length === 0 ? (
           <div className="h-40 flex flex-col items-center justify-center text-white/40 gap-2">

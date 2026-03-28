@@ -39,19 +39,6 @@ const studioSchema = z.object({
   userRoles: z.array(z.string()).optional(),
 });
 
-const studioAutoEntrySchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("redirect"),
-    studioId: z.string(),
-    target: z.string(),
-    count: z.number(),
-  }),
-  z.object({
-    mode: z.literal("select"),
-    count: z.number(),
-  }),
-]);
-
 const productionSchema = z.object({
   id: z.string(),
   studioId: z.string(),
@@ -77,8 +64,6 @@ const sessionSchema = z.object({
   scheduledAt: z.string().or(z.date()).transform(val => new Date(val).toISOString()),
   durationMinutes: z.number(),
   status: z.string(),
-  storageProvider: z.string().optional(),
-  takesPath: z.string().optional(),
 });
 
 const staffSchema = z.object({
@@ -105,14 +90,6 @@ export const api = {
       path: '/api/studios' as const,
       responses: {
         200: z.array(studioSchema),
-      }
-    },
-    autoEntry: {
-      method: 'GET' as const,
-      path: '/api/studios/auto-entry' as const,
-      responses: {
-        200: studioAutoEntrySchema,
-        404: errorSchemas.notFound,
       }
     },
     get: {
@@ -235,8 +212,6 @@ export const api = {
         scheduledAt: z.string(),
         durationMinutes: z.number().optional(),
         status: z.string().optional(),
-        storageProvider: z.enum(["supabase", "local"]).optional(),
-        takesPath: z.string().optional(),
       }),
       responses: {
         201: sessionSchema,

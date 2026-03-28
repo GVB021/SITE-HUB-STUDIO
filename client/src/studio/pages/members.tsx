@@ -18,9 +18,11 @@ import { useToast } from "@studio/hooks/use-toast";
 import { useStudioRole } from "@studio/hooks/use-studio-role";
 
 const STUDIO_ROLES = [
-  { value: "admin", label: pt.roles.admin },
-  { value: "director", label: pt.roles.director },
-  { value: "dubber", label: pt.roles.dubber },
+  { value: "studio_admin", label: pt.roles.studio_admin },
+  { value: "diretor", label: pt.roles.diretor },
+  { value: "engenheiro_audio", label: pt.roles.engenheiro_audio },
+  { value: "dublador", label: pt.roles.dublador },
+  { value: "aluno", label: pt.roles.aluno },
 ];
 
 const Members = memo(function Members({ studioId }: { studioId: string }) {
@@ -103,7 +105,7 @@ const Members = memo(function Members({ studioId }: { studioId: string }) {
           {pendingMembers.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-blue-500" />
+                <UserPlus className="w-4 h-4 text-amber-500" />
                 {pt.members.pendingMembers}
                 <Badge variant="secondary" className="ml-1">{pendingMembers.length}</Badge>
               </h3>
@@ -111,7 +113,7 @@ const Members = memo(function Members({ studioId }: { studioId: string }) {
                 <div key={m.id} className="vhub-card p-4" data-testid={`pending-member-${m.id}`}>
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-blue-500/15 ring-1 ring-blue-500/25 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/15 ring-1 ring-amber-500/25 flex items-center justify-center text-amber-400 font-bold text-sm shrink-0">
                         {(m.user?.fullName || m.user?.email || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">

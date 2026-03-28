@@ -1,649 +1,509 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation, Link } from "wouter";
-import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Mail, Lock, ChevronRight, CheckCircle2, AlertCircle, Eye, EyeOff, User, Phone, CalendarDays, Building2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@studio/hooks/use-auth";
 import { Input } from "@studio/components/ui/input";
-import { Button } from "@studio/components/ui/button";
+import { Textarea } from "@studio/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@studio/components/ui/select";
+import { Loader2, ArrowRight, ArrowLeft, UserPlus, CheckCircle2, ShieldCheck, AudioWaveform, Clock3 } from "lucide-react";
+import { useLocation } from "wouter";
+import { pt } from "@studio/lib/i18n";
 import { useToast } from "@studio/hooks/use-toast";
+import { motion, AnimatePresence } from "framer-motion";
+import { AppHeader } from "@/components/nav/AppHeader";
 import { MeshGradient } from "@/components/landing/MeshGradient";
-import { LanguageThemePill } from "@/components/nav/LanguageThemePill";
-import { maskBirthDate, maskBrazilWhatsapp, validateSimplifiedRegisterInput, normalizeEmail } from "@shared/register-validation";
-
-function sanitizeRedirectTarget(target: unknown): string {
-  const value = String(target || "").trim();
-  if (!value.startsWith("/hub-dub/")) return "/hub-dub/studios";
-  return value;
-}
 
 export default function Login() {
-  const [lang, setLang] = useState<"en" | "pt">(() => {
+  const [mode, setMode] = useState<"login" | "register" | "pending">("login");
+  const [language, setLanguage] = useState<"en" | "pt">(() => {
     const saved = localStorage.getItem("vhub_language");
     return saved === "pt" ? "pt" : "en";
   });
-  const [email, setEmail] = useState(() => {
-    try {
-      return localStorage.getItem("thehub_login_email") || "";
-    } catch {
-      return "";
-    }
-  });
+  const [showSignInPanel, setShowSignInPanel] = useState(false);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(() => {
-    try {
-      return localStorage.getItem("thehub_login_remember") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [touched, setTouched] = useState<{ email: boolean; password: boolean }>({ email: false, password: false });
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
-  const [redirectToAfterAuth, setRedirectToAfterAuth] = useState<string | null>(null);
-  const [studios, setStudios] = useState<Array<{ id: string; name: string }>>([]);
-  const [studiosLoading, setStudiosLoading] = useState(false);
-
-  const [registerForm, setRegisterForm] = useState({
-    fullName: "",
-    email: "",
-    password: "",
-    studioId: "",
-    whatsapp: "",
-    birthDate: "",
-  });
-  const [registerTouched, setRegisterTouched] = useState({
-    fullName: false,
-    email: false,
-    password: false,
-    studioId: false,
-    whatsapp: false,
-    birthDate: false,
-  });
-
-  const { user, login, isLoggingIn, register, isRegistering } = useAuth();
+  const { login, isLoggingIn, user, register, isRegistering } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  useEffect(() => {
-    localStorage.setItem("vhub_language", lang);
-    document.documentElement.lang = lang;
-  }, [lang]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("thehub_login_remember", rememberMe ? "true" : "false");
-      if (rememberMe) {
-        localStorage.setItem("thehub_login_email", email);
-      } else {
-        localStorage.removeItem("thehub_login_email");
-      }
-    } catch {}
-  }, [rememberMe, email]);
-
-  useEffect(() => {
-    if (user && !isLoggingIn) {
-      const timer = setTimeout(() => {
-        setLocation(sanitizeRedirectTarget(redirectToAfterAuth), { replace: true });
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [user, setLocation, isLoggingIn, redirectToAfterAuth]);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadStudios = async () => {
-      setStudiosLoading(true);
-      try {
-        const res = await fetch("/api/auth/studios-public", { credentials: "include" });
-        if (!res.ok) throw new Error("Falha ao carregar estúdios");
-        const data = await res.json();
-        if (!mounted) return;
-        setStudios(Array.isArray(data) ? data : []);
-      } catch {
-        if (!mounted) return;
-        setStudios([]);
-      } finally {
-        if (mounted) setStudiosLoading(false);
-      }
-    };
-    loadStudios();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const emailError = useMemo(() => {
-    const v = email.trim();
-    if (!v) return lang === "en" ? "Email is required" : "Email é obrigatório";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return lang === "en" ? "Invalid email" : "Email inválido";
-    return null;
-  }, [email, lang]);
-
-  const passwordError = useMemo(() => {
-    if (!password) return lang === "en" ? "Password is required" : "Senha é obrigatória";
-    if (password.length < 4) return lang === "en" ? "Minimum 4 characters" : "Mínimo de 4 caracteres";
-    return null;
-  }, [password, lang]);
-
-  const canSubmit = !emailError && !passwordError && !isLoggingIn && !isSuccess;
-  const registerErrors = useMemo(() => validateSimplifiedRegisterInput({
-    email: registerForm.email,
-    fullName: registerForm.fullName,
-    password: registerForm.password,
-    studioId: registerForm.studioId,
-    whatsapp: registerForm.whatsapp,
-    birthDate: registerForm.birthDate,
-  }), [registerForm]);
-
-  const canSubmitRegister = Object.keys(registerErrors).length === 0 && !isRegistering && !isSuccess;
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setTouched({ email: true, password: true });
-    if (emailError || passwordError) return;
-
-    login(
-      { email: email.trim(), password },
-      {
-        onSuccess: (data: any) => {
-          setRedirectToAfterAuth(sanitizeRedirectTarget(data?.redirectTo));
-          setIsSuccess(true);
-          toast({ title: lang === "en" ? "Welcome back!" : "Bem-vindo de volta!" });
-        },
-        onError: (err: any) => {
-          toast({
-            title: lang === "en" ? "Login failed" : "Falha no login",
-            description: String(err?.message || (lang === "en" ? "Invalid credentials." : "Credenciais inválidas.")),
-            variant: "destructive",
-          });
-        },
-      }
-    );
-  };
-
-  const submitRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-    setRegisterTouched({
-      fullName: true,
-      email: true,
-      password: true,
-      studioId: true,
-      whatsapp: true,
-      birthDate: true,
-    });
-    if (Object.keys(registerErrors).length > 0) return;
-
-    register(
-      {
-        email: normalizeEmail(registerForm.email),
-        fullName: registerForm.fullName.trim(),
-        password: registerForm.password,
-        studioId: registerForm.studioId,
-        whatsapp: registerForm.whatsapp,
-        birthDate: registerForm.birthDate,
+  const content = useMemo(() => ({
+    en: {
+        nav: ["HubDub", "HubSchool", "HubAlign"],
+        signIn: "Sign In",
+        heroTitle: "Voice Dubbing, Redefined.",
+        heroDescription: "The ultimate platform for voice actors, directors, and studios. High-fidelity ADR, real-time collaboration, and intelligent synchronization in one elegant flow.",
+        heroPrimary: "Explore Platform",
+        heroSecondary: "See Workflow",
+        secureAccess: "Secure access for production and recording workspace.",
+        profiles: "Profiles",
+        sessions: "Sessions",
+        liveScheduled: "Live and scheduled",
+        dubbingDirection: "Dubbing • Direction",
+        waitingApproval: "Waiting for approval",
+        approvalHint: "You will be notified by email.",
+        pendingTitle: "Account under review",
+        pendingDescription: "Your account has been created and is waiting for approval.",
+        backToLogin: "Back to sign in",
+        rights: "All rights reserved.",
+        timeline: "Take Timeline",
+        quality: "Assisted Quality",
+        schedule: "Precise Scheduling",
+        delivery: "Organized Delivery",
+        section2Title: "Professional Dubbing Studio",
+        section2Desc: "Advanced tools for high-end voice production. Multi-track recording, real-time monitoring, and seamless project management for the modern industry.",
+        section3Title: "Smart Audio Alignment",
+        section3Desc: "Our proprietary engine ensures perfect lip-sync and timing. Automatically align takes with the original dialogue for flawless results.",
       },
-      {
-        onSuccess: (data: any) => {
-          setRedirectToAfterAuth(sanitizeRedirectTarget(data?.redirectTo || `/hub-dub/studio/${registerForm.studioId}/dashboard`));
-          setIsSuccess(true);
-          toast({ title: "Conta criada com sucesso!" });
-        },
-        onError: (err: any) => {
-          const msg = String(err?.message || "Erro ao criar conta");
-          toast({
-            title: "Falha no cadastro",
-            description: msg,
-            variant: "destructive",
-          });
-        },
+      pt: {
+        nav: ["HubDub", "HubSchool", "HubAlign"],
+        signIn: "Sign In",
+        heroTitle: "Dublagem Profissional, Redefinida.",
+        heroDescription: "A plataforma definitiva para dubladores, diretores e estúdios. ADR de alta fidelidade, colaboração em tempo real e sincronia inteligente em um fluxo elegante.",
+        heroPrimary: "Explore Platform",
+        heroSecondary: "See Workflow",
+        secureAccess: "Acesso seguro ao ambiente de produção e gravação.",
+        profiles: "Perfis",
+        sessions: "Sessões",
+        liveScheduled: "Ao vivo e agendadas",
+        dubbingDirection: "Dublador • Direção",
+        waitingApproval: "Aguardando aprovação",
+        approvalHint: "Você será notificado por email.",
+        pendingTitle: "Conta em análise",
+        pendingDescription: "Sua conta foi criada e está aguardando aprovação.",
+        backToLogin: "Voltar para o login",
+        rights: "Todos os direitos reservados.",
+        timeline: "Timeline de Takes",
+        quality: "Qualidade Assistida",
+        schedule: "Agendamento Precisão",
+        delivery: "Entrega Organizada",
+        section2Title: "Studio de Dublagem Profissional",
+        section2Desc: "Ferramentas avançadas para produção de voz de alto nível. Gravação multi-track, monitoramento em tempo real e gestão de projetos para a indústria moderna.",
+        section3Title: "Sincronia Inteligente",
+        section3Desc: "Nosso motor proprietário garante sincronia labial e timing perfeitos. Alinhe takes automaticamente com o diálogo original para resultados impecáveis.",
+      },
+  }[language]), [language]);
+
+  const authText = useMemo(() => language === "pt" ? pt.auth : {
+    login: "Sign In",
+    loginTitle: "Sign In",
+    loginSubtitle: "Access your V.HUB workspace",
+    loginButton: "Sign In",
+    createAccount: "Create Account",
+    newHere: "New here",
+    email: "Email",
+    emailPlaceholder: "Email",
+    password: "Password",
+    passwordPlaceholder: "Password",
+    welcomeBack: "Welcome back",
+    signInSubtitle: "Access your V.HUB workspace",
+    signingIn: "Signing in...",
+    loginFailed: "Login failed",
+    successLogin: "Login successful.",
+    pendingTitle: "Account under review",
+    pendingDescription: "Your account has been created and is waiting for approval.",
+    pendingMessage: "Your account has been created and is waiting for admin approval.",
+    accountCreated: "Account created",
+    registerTitle: "Create Account",
+    registerSubtitle: "Fill in your professional details to create your account",
+    fullName: "Full name",
+    artistName: "Artist name (optional)",
+    phone: "Mobile phone",
+    altPhone: "Alternative phone (optional)",
+    birthDate: "Birth date",
+    city: "City",
+    state: "State",
+    country: "Country",
+    mainLanguage: "Main language",
+    additionalLanguages: "Additional languages (optional)",
+    experience: "Professional experience",
+    specialty: "Specialty",
+    bio: "Short bio",
+    portfolioUrl: "Portfolio link (optional)",
+    selectStudio: "Select studio",
+    registering: "Registering...",
+    signOut: "Sign out",
+    switchStudio: "Switch Studio",
+  }, [language]);
+
+  const registerText = useMemo(() => language === "pt" ? pt.register : {
+    submit: "Create Account",
+    backToLogin: "Back to Sign In",
+  }, [language]);
+
+  const [form, setForm] = useState({
+    fullName: "", artistName: "", email: "", password: "",
+    phone: "", altPhone: "", birthDate: "", city: "", state: "", country: "",
+    mainLanguage: "", additionalLanguages: "", experience: "", specialty: "",
+    bio: "", portfolioUrl: "", studioId: "",
+  });
+
+  const [publicStudios, setPublicStudios] = useState<{ id: string; name: string }[]>([]);
+  const [studiosLoading, setStudiosLoading] = useState(false);
+
+  useEffect(() => {
+    if (mode === "register" && publicStudios.length === 0) {
+      setStudiosLoading(true);
+      fetch("/api/auth/studios-public")
+        .then(res => res.json())
+        .then(data => setPublicStudios(Array.isArray(data) ? data : []))
+        .catch(() => setPublicStudios([]))
+        .finally(() => setStudiosLoading(false));
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    localStorage.setItem("vhub_language", language);
+    document.documentElement.lang = language;
+  }, [language]);
+
+  // We remove the automatic redirect to /studios if already logged in,
+  // to respect the user's wish that the initial page is always the Login page.
+  useEffect(() => {
+    // No auto-redirect here to allow the login page to be the entry point.
+  }, [user, setLocation]);
+
+  // We no longer return null if user exists, allowing the login page to be visible.
+  // The UI can handle showing a "Continue" button if needed.
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    login({ email, password }, {
+      onError: (err: any) => {
+        if (err.message === "pending") {
+          setMode("pending");
+        } else {
+          toast({ title: language === "en" ? "Sign in error" : "Erro ao entrar", description: err.message, variant: "destructive" });
+        }
+      },
+      onSuccess: async () => {
+        try {
+          const res = await fetch("/api/studios");
+          if (!res.ok) throw new Error(language === "en" ? "Failed to load studios" : "Falha ao buscar estúdios");
+          const studios = await res.json();
+          if (Array.isArray(studios) && studios.length === 1) {
+            setLocation(`/hub-dub/studio/${studios[0].id}/dashboard`);
+          } else {
+            setLocation("/hub-dub/studios");
+          }
+        } catch {
+          setLocation("/hub-dub/studios");
+        }
       }
-    );
+    });
   };
 
-  const handleResetPassword = async () => {
-    const v = resetEmail.trim();
-    if (!v || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-      toast({ title: lang === "en" ? "Invalid email" : "Email inválido", variant: "destructive" });
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.fullName || !form.email || !form.password || !form.phone ||
+        !form.city || !form.state || !form.country ||
+        !form.mainLanguage || !form.experience || !form.specialty || !form.bio || !form.studioId) {
+      toast({ title: language === "en" ? "Error" : "Erro", description: language === "en" ? "Fill all required fields." : "Preencha todos os campos obrigatorios.", variant: "destructive" });
       return;
     }
-    try {
-      await fetch("/api/auth/request-password-reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: v }),
-        credentials: "include",
-      });
-      toast({ title: lang === "en" ? "Request sent" : "Solicitação enviada" });
-      setResetOpen(false);
-    } catch (err: any) {
-      toast({ 
-        title: lang === "en" ? "Request failed" : "Falha ao solicitar", 
-        description: String(err?.message || ""), 
-        variant: "destructive" 
-      });
-    }
+    register(form, {
+      onSuccess: () => {
+        setMode("pending");
+      },
+      onError: (err: any) => {
+        toast({ title: language === "en" ? "Failed to create account" : "Erro ao criar conta", description: err.message, variant: "destructive" });
+      }
+    });
   };
 
-  return (
-    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 flex flex-col overflow-x-hidden">
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 opacity-40 scale-110">
-          <MeshGradient />
-        </div>
-        <div className="absolute inset-0 bg-white/40 backdrop-blur-[100px]" />
-        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px] animate-pulse delay-700" />
-      </div>
+  const updateForm = (field: string, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+  };
 
-      {/* Header */}
-      <header className="relative z-50 w-full px-6 py-8">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <Link to="/">
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              className="flex items-center gap-3 cursor-pointer group"
-            >
-              <div className="h-10 w-10 rounded-2xl bg-white border border-border/50 flex items-center justify-center shadow-lg shadow-black/5 group-hover:border-primary/50 transition-colors">
-                <img src="/logo.svg" alt="V.HUB" className="h-6 w-6" />
-              </div>
-              <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">V.HUB</span>
-            </motion.div>
-          </Link>
-          <LanguageThemePill lang={lang} setLang={setLang} />
-        </div>
-      </header>
+  const MarketingBackground = () => (
+    <>
+      <div className="fixed inset-0 z-0 pointer-events-none bg-background" />
+      <MeshGradient />
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-[0.035] bg-[radial-gradient(circle_at_1px_1px,_currentColor_1px,_transparent_0)] text-foreground bg-[length:26px_26px]" />
+    </>
+  );
 
-      <main className="relative z-10 flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-[1100px] grid lg:grid-cols-2 gap-16 items-center">
-          
-          {/* Left Column: Branding & Value Prop */}
-          <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6 }}
-            className="hidden lg:flex flex-col space-y-8"
-          >
-            <div className="space-y-4">
-              <motion.span 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-[10px] font-bold uppercase tracking-[0.2em] text-primary"
-              >
-                <div className="h-1 w-1 rounded-full bg-primary animate-ping" />
-                {lang === "en" ? "Studio Platform" : "Plataforma de Estúdio"}
-              </motion.span>
-              <h1 className="text-5xl xl:text-6xl font-extrabold tracking-tight leading-[1.1]">
-                {lang === "en" ? (
-                  <>The future of <span className="text-primary italic">voice</span> production.</>
-                ) : (
-                  <>O futuro da produção de <span className="text-primary italic">voz</span>.</>
-                )}
+  if (mode === "pending") {
+    return (
+      <div className="min-h-screen bg-background text-foreground relative overflow-hidden">
+        <MarketingBackground />
+        <AppHeader
+          lang={language}
+          setLang={setLanguage}
+          rightCta={{ label: content.signIn, onClick: () => setShowSignInPanel(true) }}
+        />
+        <main className="pt-[60px] px-6 py-16 flex justify-center relative z-10">
+          <div className="w-full max-w-md bg-card border border-border/60 rounded-2xl p-8 shadow-2xl">
+          <div className="flex flex-col items-center text-center space-y-6">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 blur-xl opacity-60 rounded-full" />
+              <img src="/logo.svg" alt="THE HUB" className="h-16 w-16 relative z-10" />
+            </div>
+            
+            <div className="space-y-2">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {authText.pendingTitle}
               </h1>
-              <p className="text-lg text-muted-foreground max-w-md leading-relaxed">
-                {lang === "en" 
-                  ? "Professional workspace for studios, directors and actors to collaborate in real-time."
-                  : "Workspace profissional para estúdios, diretores e atores colaborarem em tempo real."}
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {authText.pendingDescription}
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { en: "High Fidelity", pt: "Alta Fidelidade", icon: "🎙️" },
-                { en: "Real-time", pt: "Tempo Real", icon: "⚡" },
-                { en: "Smart Sync", pt: "Sincronia Inteligente", icon: "🧠" },
-                { en: "Cloud Scale", pt: "Escala em Nuvem", icon: "☁️" }
-              ].map((feature, i) => (
-                <motion.div
-                  key={feature.en}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + (i * 0.1) }}
-                  className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md flex items-center gap-3"
-                >
-                  <span className="text-xl">{feature.icon}</span>
-                  <span className="text-xs font-semibold">{lang === "en" ? feature.en : feature.pt}</span>
-                </motion.div>
-              ))}
+            <div className="w-full p-4 bg-muted/30 border border-border/60 rounded-xl flex items-center gap-3 text-left">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <Loader2 className="h-5 w-5 text-primary animate-spin" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground">{content.waitingApproval}</p>
+                <p className="text-xs text-muted-foreground">{content.approvalHint}</p>
+              </div>
             </div>
-          </motion.div>
 
-          {/* Right Column: Login Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex flex-col"
-          >
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-primary/30 to-blue-500/30 rounded-[2rem] blur-2xl opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200" />
-              
-              <div className="relative bg-white/70 backdrop-blur-3xl border border-white/20 rounded-[2rem] shadow-2xl overflow-hidden">
-                <div className="p-8 md:p-10">
-                  <div className="space-y-2 mb-6">
-                    <h2 className="text-3xl font-bold tracking-tight">
-                      {authMode === "login" ? (lang === "en" ? "Welcome back" : "Boas-vindas") : (lang === "en" ? "Create account" : "Criar conta")}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {authMode === "login"
-                        ? (lang === "en" ? "Enter your credentials to continue" : "Insira suas credenciais para continuar")
-                        : (lang === "en" ? "Complete your registration to start now" : "Conclua seu cadastro e entre agora")}
-                    </p>
+            <button 
+              onClick={() => setMode("login")}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+            >
+              <ArrowLeft className="w-3 h-3" /> {content.backToLogin}
+            </button>
+          </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (mode === "register") {
+    return (
+      <div className="min-h-screen bg-background text-foreground relative overflow-hidden">
+        <MarketingBackground />
+        <AppHeader lang={language} setLang={setLanguage} rightCta={{ label: content.signIn, onClick: () => setShowSignInPanel(true) }} />
+        <main className="pt-[60px] px-6 py-10 relative z-10 flex justify-center">
+          <div className="w-full max-w-4xl">
+            <div className="text-center mb-8">
+              <img src="/logo.svg" alt="THE HUB" className="h-12 w-12 mx-auto mb-4" />
+              <h1 className="text-3xl font-semibold tracking-tight mb-2">{authText.registerTitle}</h1>
+              <p className="text-muted-foreground">{authText.registerSubtitle}</p>
+            </div>
+
+            <form onSubmit={handleRegister} className="bg-card border border-border/60 rounded-2xl p-8 shadow-2xl space-y-8">
+            {/* Form Sections */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-foreground/70 uppercase tracking-wider border-b border-border/60 pb-2">{language === "en" ? "Personal Details" : "Dados Pessoais"}</h3>
+                <div className="space-y-4">
+                  <Input placeholder={authText.fullName} value={form.fullName} onChange={e => updateForm("fullName", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input placeholder={authText.artistName} value={form.artistName} onChange={e => updateForm("artistName", e.target.value)} className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input type="email" placeholder={authText.emailPlaceholder} value={form.email} onChange={e => updateForm("email", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input type="password" placeholder={authText.passwordPlaceholder} value={form.password} onChange={e => updateForm("password", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input placeholder={authText.phone} value={form.phone} onChange={e => updateForm("phone", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                    <Input placeholder={authText.altPhone} value={form.altPhone} onChange={e => updateForm("altPhone", e.target.value)} className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
                   </div>
-
-                  <div className="grid grid-cols-2 rounded-xl bg-muted/40 border border-border/50 p-1 mb-8">
-                    <button
-                      type="button"
-                      onClick={() => setAuthMode("login")}
-                      className={`h-10 rounded-lg text-xs font-bold transition-colors ${authMode === "login" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                      data-testid="button-mode-login"
-                    >
-                      {lang === "en" ? "Sign in" : "Entrar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAuthMode("register")}
-                      className={`h-10 rounded-lg text-xs font-bold transition-colors ${authMode === "register" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                      data-testid="button-mode-register"
-                    >
-                      {lang === "en" ? "Register" : "Cadastrar"}
-                    </button>
-                  </div>
-
-                  {authMode === "login" ? (
-                    <form onSubmit={submit} className="space-y-6" data-testid="form-login">
-                      <div className="space-y-5">
-                        <div className="space-y-2 group/input">
-                          <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">
-                            {lang === "en" ? "Work Email" : "E-mail Profissional"}
-                          </label>
-                          <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within/input:text-primary">
-                              <Mail className="w-4 h-4" />
-                            </div>
-                            <Input
-                              type="email"
-                              value={email}
-                              onChange={(e) => setEmail(e.target.value)}
-                              onBlur={() => setTouched((p) => ({ ...p, email: true }))}
-                              placeholder="exemplo@estudio.com"
-                              className="pl-11 h-12 rounded-2xl border-border/40 bg-white/50 focus-visible:ring-primary/20 focus-visible:border-primary transition-all"
-                              autoComplete="email"
-                              data-testid="input-email"
-                            />
-                          </div>
-                          <AnimatePresence>
-                            {touched.email && emailError && (
-                              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="flex items-center gap-1.5 px-1 text-xs text-rose-500 font-medium overflow-hidden" data-testid="error-email">
-                                <AlertCircle className="w-3 h-3" />
-                                {emailError}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-
-                        <div className="space-y-2 group/input">
-                          <div className="flex items-center justify-between px-1">
-                            <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80">
-                              {lang === "en" ? "Security Key" : "Chave de Segurança"}
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setResetEmail(email.trim());
-                                setResetOpen(true);
-                              }}
-                              className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary hover:text-primary/80 transition-colors"
-                              data-testid="button-forgot-password"
-                            >
-                              {lang === "en" ? "Forgot?" : "Esqueceu?"}
-                            </button>
-                          </div>
-                          <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within/input:text-primary">
-                              <Lock className="w-4 h-4" />
-                            </div>
-                            <Input
-                              type={showPassword ? "text" : "password"}
-                              value={password}
-                              onChange={(e) => setPassword(e.target.value)}
-                              onBlur={() => setTouched((p) => ({ ...p, password: true }))}
-                              placeholder="••••••••"
-                              className="pl-11 pr-11 h-12 rounded-2xl border-border/40 bg-white/50 focus-visible:ring-primary/20 focus-visible:border-primary transition-all"
-                              autoComplete="current-password"
-                              data-testid="input-password"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                          </div>
-                          <AnimatePresence>
-                            {touched.password && passwordError && (
-                              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="flex items-center gap-1.5 px-1 text-xs text-rose-500 font-medium overflow-hidden" data-testid="error-password">
-                                <AlertCircle className="w-3 h-3" />
-                                {passwordError}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 px-1">
-                        <div onClick={() => setRememberMe(!rememberMe)} className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors duration-300 ${rememberMe ? "bg-primary" : "bg-muted"}`} data-testid="checkbox-remember-me">
-                          <motion.div animate={{ x: rememberMe ? 20 : 0 }} className="w-3 h-3 rounded-full bg-white shadow-sm" />
-                        </div>
-                        <span className="text-xs text-muted-foreground select-none cursor-pointer" onClick={() => setRememberMe(!rememberMe)}>
-                          {lang === "en" ? "Stay signed in" : "Manter-me conectado"}
-                        </span>
-                      </div>
-
-                      <Button type="submit" disabled={!canSubmit} data-testid="button-submit-login" className={`w-full h-14 rounded-2xl font-bold text-base transition-all duration-300 relative overflow-hidden ${isSuccess ? "bg-emerald-500 hover:bg-emerald-500" : "bg-foreground hover:bg-foreground/90"}`}>
-                        <AnimatePresence mode="wait">
-                          {isLoggingIn ? (
-                            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-3">
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              {lang === "en" ? "Authenticating..." : "Autenticando..."}
-                            </motion.div>
-                          ) : isSuccess ? (
-                            <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-3">
-                              <CheckCircle2 className="w-5 h-5" />
-                              {lang === "en" ? "Authorized" : "Autorizado"}
-                            </motion.div>
-                          ) : (
-                            <motion.div key="default" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2">
-                              {lang === "en" ? "Enter Studio" : "Entrar no Estúdio"}
-                              <ChevronRight className="w-5 h-5" />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </Button>
-                    </form>
-                  ) : (
-                    <form onSubmit={submitRegister} className="space-y-4" data-testid="form-register">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">Nome completo</label>
-                        <div className="relative">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            <User className="w-4 h-4" />
-                          </div>
-                          <Input value={registerForm.fullName} onChange={(e) => setRegisterForm((p) => ({ ...p, fullName: e.target.value }))} onBlur={() => setRegisterTouched((p) => ({ ...p, fullName: true }))} className="pl-11 h-12 rounded-2xl border-border/40 bg-white/50" placeholder="Nome e sobrenome" data-testid="input-register-full-name" />
-                        </div>
-                        {registerTouched.fullName && registerErrors.fullName && <p className="text-xs text-rose-500 px-1">{registerErrors.fullName}</p>}
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">E-mail</label>
-                        <div className="relative">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            <Mail className="w-4 h-4" />
-                          </div>
-                          <Input type="email" value={registerForm.email} onChange={(e) => setRegisterForm((p) => ({ ...p, email: e.target.value }))} onBlur={() => setRegisterTouched((p) => ({ ...p, email: true }))} className="pl-11 h-12 rounded-2xl border-border/40 bg-white/50" placeholder="exemplo@estudio.com" data-testid="input-register-email" />
-                        </div>
-                        {registerTouched.email && registerErrors.email && <p className="text-xs text-rose-500 px-1">{registerErrors.email}</p>}
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">Senha</label>
-                        <div className="relative">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            <Lock className="w-4 h-4" />
-                          </div>
-                          <Input type={showPassword ? "text" : "password"} value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} onBlur={() => setRegisterTouched((p) => ({ ...p, password: true }))} className="pl-11 pr-11 h-12 rounded-2xl border-border/40 bg-white/50" placeholder="Mínimo 8 caracteres" data-testid="input-register-password" />
-                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        {registerTouched.password && registerErrors.password && <p className="text-xs text-rose-500 px-1">{registerErrors.password}</p>}
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">Estúdio</label>
-                        <div className="relative">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                            <Building2 className="w-4 h-4" />
-                          </div>
-                          <select value={registerForm.studioId} onChange={(e) => setRegisterForm((p) => ({ ...p, studioId: e.target.value }))} onBlur={() => setRegisterTouched((p) => ({ ...p, studioId: true }))} className="w-full pl-11 pr-4 h-12 rounded-2xl border border-border/40 bg-white/50 text-sm" data-testid="select-register-studio">
-                            <option value="">{studiosLoading ? "Carregando estúdios..." : "Selecione um estúdio"}</option>
-                            {studios.map((s) => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        {registerTouched.studioId && registerErrors.studioId && <p className="text-xs text-rose-500 px-1">{registerErrors.studioId}</p>}
-                      </div>
-
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">WhatsApp</label>
-                          <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                              <Phone className="w-4 h-4" />
-                            </div>
-                            <Input value={registerForm.whatsapp} onChange={(e) => setRegisterForm((p) => ({ ...p, whatsapp: maskBrazilWhatsapp(e.target.value) }))} onBlur={() => setRegisterTouched((p) => ({ ...p, whatsapp: true }))} className="pl-11 h-12 rounded-2xl border-border/40 bg-white/50" placeholder="(11) 99999-9999" data-testid="input-register-whatsapp" />
-                          </div>
-                          {registerTouched.whatsapp && registerErrors.whatsapp && <p className="text-xs text-rose-500 px-1">{registerErrors.whatsapp}</p>}
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">Data de nascimento</label>
-                          <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                              <CalendarDays className="w-4 h-4" />
-                            </div>
-                            <Input value={registerForm.birthDate} onChange={(e) => setRegisterForm((p) => ({ ...p, birthDate: maskBirthDate(e.target.value) }))} onBlur={() => setRegisterTouched((p) => ({ ...p, birthDate: true }))} className="pl-11 h-12 rounded-2xl border-border/40 bg-white/50" placeholder="DD/MM/AAAA" data-testid="input-register-birth-date" />
-                          </div>
-                          {registerTouched.birthDate && registerErrors.birthDate && <p className="text-xs text-rose-500 px-1">{registerErrors.birthDate}</p>}
-                        </div>
-                      </div>
-
-                      <Button type="submit" disabled={!canSubmitRegister} data-testid="button-submit-register" className={`w-full h-14 rounded-2xl font-bold text-base transition-all duration-300 relative overflow-hidden ${isSuccess ? "bg-emerald-500 hover:bg-emerald-500" : "bg-foreground hover:bg-foreground/90"}`}>
-                        {isRegistering ? (
-                          <span className="flex items-center gap-3"><Loader2 className="w-5 h-5 animate-spin" />Criando conta...</span>
-                        ) : isSuccess ? (
-                          <span className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5" />Conta criada</span>
-                        ) : (
-                          <span className="flex items-center gap-2">Criar conta <ChevronRight className="w-5 h-5" /></span>
-                        )}
-                      </Button>
-                    </form>
-                  )}
+                  <Input type="date" placeholder={authText.birthDate} value={form.birthDate} onChange={e => updateForm("birthDate", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
                 </div>
+              </div>
 
-                <div className="p-8 text-center">
-                  <p className="text-xs text-muted-foreground/60">
-                    {lang === "en" 
-                      ? "By signing in, you agree to our Terms of Service."
-                      : "Ao entrar, você concorda com nossos Termos de Serviço."}
-                  </p>
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-foreground/70 uppercase tracking-wider border-b border-border/60 pb-2">{language === "en" ? "Location and Profile" : "Localização e Perfil"}</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                     <Input placeholder={authText.city} value={form.city} onChange={e => updateForm("city", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                     <Input placeholder={authText.state} value={form.state} onChange={e => updateForm("state", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                     <Input placeholder={authText.country} value={form.country} onChange={e => updateForm("country", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  </div>
+                  <Input placeholder={authText.mainLanguage} value={form.mainLanguage} onChange={e => updateForm("mainLanguage", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input placeholder={authText.additionalLanguages} value={form.additionalLanguages} onChange={e => updateForm("additionalLanguages", e.target.value)} className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input placeholder={authText.experience} value={form.experience} onChange={e => updateForm("experience", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Input placeholder={authText.specialty} value={form.specialty} onChange={e => updateForm("specialty", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  <Textarea placeholder={authText.bio} value={form.bio} onChange={e => updateForm("bio", e.target.value)} required className="bg-background border-border/70 focus:border-primary/50 min-h-[80px] text-foreground placeholder:text-muted-foreground" />
+                  <Input placeholder={authText.portfolioUrl} value={form.portfolioUrl} onChange={e => updateForm("portfolioUrl", e.target.value)} className="bg-background border-border/70 focus:border-primary/50 text-foreground placeholder:text-muted-foreground" />
+                  
+                  {studiosLoading ? (
+                    <div className="flex justify-center p-2"><Loader2 className="animate-spin text-primary" /></div>
+                  ) : (
+                    <Select value={form.studioId} onValueChange={v => updateForm("studioId", v)}>
+                      <SelectTrigger className="bg-background border-border/70 focus:border-primary/50">
+                        <SelectValue placeholder={authText.selectStudio} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {publicStudios.map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
             </div>
-          </motion.div>
+
+            <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t border-border/60">
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className="px-6 py-3 rounded-lg border border-border/60 hover:bg-muted/30 text-muted-foreground transition-colors flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {registerText.backToLogin}
+              </button>
+              <button
+                type="submit"
+                disabled={isRegistering}
+                className="flex-1 px-6 py-3 bg-primary hover:bg-primary/90 text-primary-foreground font-medium rounded-lg transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+              >
+                {isRegistering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {registerText.submit} <UserPlus className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+          </div>
+        </main>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-screen bg-background text-foreground relative overflow-x-hidden">
+      <MarketingBackground />
+      <AppHeader lang={language} setLang={setLanguage} rightCta={{ label: content.signIn, onClick: () => setShowSignInPanel(true) }} />
+
+      <main className="pt-[60px] relative z-10">
+        <section className="max-w-[1400px] mx-auto px-6 pt-16 pb-10 grid md:grid-cols-2 gap-12 items-center">
+          <div className="space-y-7">
+            <h1 className="text-5xl md:text-6xl font-semibold leading-[1.02] tracking-tight">
+              {content.heroTitle}
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl">
+              {content.heroDescription}
+            </p>
+
+            <div className="grid gap-3 max-w-xl">
+              <div className="flex items-center gap-3 text-sm text-foreground/80">
+                <ShieldCheck className="w-4 h-4 text-primary" />
+                <span>{content.secureAccess}</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-foreground/80">
+                <AudioWaveform className="w-4 h-4 text-primary" />
+                <span>{content.timeline}</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-foreground/80">
+                <Clock3 className="w-4 h-4 text-primary" />
+                <span>{content.schedule}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSignInPanel(true)}
+                className="h-11 px-6 rounded-full bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+              >
+                {content.heroPrimary}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLocation("/hub-dub/studios")}
+                className="h-11 px-6 rounded-full border border-border/70 hover:bg-muted/30 transition-colors"
+              >
+                {content.heroSecondary}
+              </button>
+            </div>
+          </div>
+
+          <div className="relative">
+            <div className="relative aspect-[16/10] bg-card rounded-2xl border border-border/60 shadow-2xl overflow-hidden">
+              <img src="/landing/hubdub-mic.svg" alt="HubDub Studio" className="absolute inset-0 w-full h-full object-cover opacity-90" />
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/15 to-transparent" />
+            </div>
+            <div className="absolute -inset-6 bg-primary/10 blur-3xl -z-10" />
+          </div>
+        </section>
+
+        <section className="max-w-[1400px] mx-auto px-6 pb-16">
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="rounded-2xl bg-card border border-border/60 p-6">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-5 h-5 text-primary" />
+              </div>
+              <h3 className="font-semibold tracking-tight mb-2">{content.quality}</h3>
+              <p className="text-sm text-muted-foreground">{content.delivery}</p>
+            </div>
+            <div className="rounded-2xl bg-card border border-border/60 p-6">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <AudioWaveform className="w-5 h-5 text-primary" />
+              </div>
+              <h3 className="font-semibold tracking-tight mb-2">{content.timeline}</h3>
+              <p className="text-sm text-muted-foreground">{content.dubbingDirection}</p>
+            </div>
+            <div className="rounded-2xl bg-card border border-border/60 p-6">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <Clock3 className="w-5 h-5 text-primary" />
+              </div>
+              <h3 className="font-semibold tracking-tight mb-2">{content.schedule}</h3>
+              <p className="text-sm text-muted-foreground">{content.liveScheduled}</p>
+            </div>
+          </div>
+        </section>
+
+        <div className="px-6 pb-10 text-xs text-muted-foreground max-w-[1400px] mx-auto">
+          © {new Date().getFullYear()} THE HUB. {content.rights}
         </div>
       </main>
 
-      {/* Footer Info (Desktop) */}
-      <footer className="relative z-10 px-6 py-8 hidden md:block">
-        <div className="max-w-7xl mx-auto flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/40">
-          <span>&copy; 2026 THE HUB PRODUCTIONS</span>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-primary transition-colors">Security</a>
-            <a href="#" className="hover:text-primary transition-colors">Privacy</a>
-            <a href="#" className="hover:text-primary transition-colors">Status</a>
-          </div>
-        </div>
-      </footer>
-
-      {/* Reset Password Modal */}
       <AnimatePresence>
-        {resetOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setResetOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-[420px] rounded-[2rem] border border-white/20 bg-white p-8 shadow-2xl"
+        {showSignInPanel ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/45 p-4 flex items-center justify-center"
+            onClick={() => setShowSignInPanel(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              transition={{ duration: 0.22 }}
+              className="w-full max-w-md bg-background border border-border/70 rounded-2xl p-8 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-2xl font-bold tracking-tight">
-                    {lang === "en" ? "Recovery" : "Recuperação"}
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {lang === "en"
-                      ? "Enter your email. We'll register your request for the studio admin."
-                      : "Informe seu email. Vamos registrar sua solicitação para o admin do estúdio."}
-                  </p>
+              <div className="flex flex-col space-y-2 text-center mb-8">
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">{authText.loginTitle}</h2>
+                <p className="text-sm text-muted-foreground">{authText.loginSubtitle}</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-4">
+                  <Input type="email" placeholder={authText.emailPlaceholder} value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-background border-border/70 focus:border-primary/60 focus:ring-primary/25 h-11 transition-all text-foreground placeholder:text-muted-foreground" />
+                  <Input type="password" placeholder={authText.passwordPlaceholder} value={password} onChange={(e) => setPassword(e.target.value)} required className="bg-background border-border/70 focus:border-primary/60 focus:ring-primary/25 h-11 transition-all text-foreground placeholder:text-muted-foreground" />
                 </div>
-                <div className="space-y-2 group/input">
-                  <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 px-1">
-                    {lang === "en" ? "Work Email" : "E-mail Profissional"}
-                  </label>
-                  <Input
-                    type="email"
-                    value={resetEmail}
-                    onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="exemplo@estudio.com"
-                    className="h-12 rounded-2xl border-border/40 bg-white/50 focus-visible:ring-primary/20 focus-visible:border-primary transition-all"
-                    data-testid="input-reset-email"
-                  />
+
+                <button type="submit" disabled={isLoggingIn} className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium rounded-lg transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
+                  {isLoggingIn ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {authText.loginButton} <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+
+              <div className="grid grid-cols-2 gap-2 mt-5 mb-6">
+                <div className="rounded-lg border border-border/70 bg-muted/20 p-2 text-center">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{content.profiles}</p>
+                  <p className="text-xs text-foreground">{content.dubbingDirection}</p>
                 </div>
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setResetOpen(false)}
-                    className="flex-1 h-12 rounded-2xl font-bold"
-                    data-testid="button-cancel-reset"
-                  >
-                    {lang === "en" ? "Cancel" : "Cancelar"}
-                  </Button>
-                  <Button
-                    onClick={handleResetPassword}
-                    className="flex-1 h-12 rounded-2xl bg-foreground text-background font-bold"
-                    data-testid="button-submit-reset"
-                  >
-                    {lang === "en" ? "Send" : "Enviar"}
-                  </Button>
+                <div className="rounded-lg border border-border/70 bg-muted/20 p-2 text-center">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{content.sessions}</p>
+                  <p className="text-xs text-foreground">{content.liveScheduled}</p>
                 </div>
               </div>
+
+              <div className="relative my-7">
+                <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border/60" /></div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">{authText.newHere}</span>
+                </div>
+              </div>
+
+              <button onClick={() => { setShowSignInPanel(false); setMode("register"); }} className="w-full h-11 border border-border/70 hover:bg-muted/30 text-foreground font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                {authText.createAccount}
+              </button>
             </motion.div>
-          </div>
-        )}
+          </motion.div>
+        ) : null}
       </AnimatePresence>
     </div>
   );
