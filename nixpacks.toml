@@ -1,0 +1,17 @@
+# Configuração de Build para o Railway (Nixpacks)
+# Garante que Node.js, Python e FFmpeg estejam disponíveis no mesmo container
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "python311", "ffmpeg", "npm"]
+
+[phases.install]
+cmds = [
+    "npm ci",
+    "pip3 install -r services/media-pipeline/requirements.txt"
+]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
