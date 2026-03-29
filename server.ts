@@ -24,8 +24,33 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
+    
+    // Log de requisições para debug
+    app.use((req, res, next) => {
+      console.log(`${req.method} ${req.path}`);
+      next();
+    });
+    
+    // Servir arquivos estáticos com headers corretos
+    app.use(express.static(distPath, {
+      maxAge: '1y',
+      immutable: true,
+      setHeaders: (res, filepath) => {
+        // Não cachear HTML
+        if (filepath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      }
+    }));
+    
+    // SPA fallback - apenas para rotas sem extensão de arquivo
     app.get('*', (req, res) => {
+      // Se requisição tem extensão de arquivo, não é uma rota SPA
+      if (req.path.includes('.')) {
+        return res.status(404).send('File not found');
+      }
+      
+      // Rotas SPA recebem index.html
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
