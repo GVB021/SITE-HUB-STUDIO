@@ -779,7 +779,7 @@ export default function RecordingRoom() {
   const { data: production, isLoading: productionLoading } = useProductionScript(studioId, session?.productionId);
   const { data: charactersList } = useCharactersList(session?.productionId);
 
-  const scriptLines: ScriptLine[] = useMemo(() => {
+  const scriptLines: ScriptLine[] = (() => {
     if (!production?.scriptJson) return [];
     try {
       const parsed = JSON.parse(production.scriptJson);
@@ -820,7 +820,7 @@ export default function RecordingRoom() {
       console.error("[Room] Failed to parse scriptJson:", e);
       return [];
     }
-  }, [production?.scriptJson]);
+  })();
 
   const filteredScriptLines = useMemo(() => {
     if (!filterByCharacter || !recordingProfile) return scriptLines;
@@ -2026,30 +2026,6 @@ export default function RecordingRoom() {
 
   const currentScriptLine = scriptLines[currentLine];
 
-  const textControlRoster = useMemo(() => {
-    return presenceUsers.length
-      ? presenceUsers
-      : (session?.participants || []).map((p: any) => ({ 
-          userId: p.userId, 
-          name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", 
-          role: p.role 
-        }));
-  }, [presenceUsers, session?.participants]);
-
-  const authorizedUsersNames = useMemo(() => {
-    const names = textControlRoster
-      .filter((u: any) => pendingTextControllerUserIds.has(u.userId))
-      .map((u: any) => u.name || "Usuario");
-    return names.length ? names.join(", ") : "Nenhum";
-  }, [textControlRoster, pendingTextControllerUserIds]);
-
-  const eligibleParticipants = useMemo(() => {
-    return textControlRoster.filter((p: any) => {
-      const r = String(p.role || "").toLowerCase();
-      return r === "aluno" || r === "dublador" || r === "voice_actor" || r === "student";
-    });
-  }, [textControlRoster]);
-
   if (sessionLoading || (session && productionLoading)) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-background">
@@ -2337,17 +2313,37 @@ export default function RecordingRoom() {
               <div className="text-[11px] mb-3" style={{ color: "rgba(255,255,255,0.55)" }}>
                 Autorizados:{" "}
                 <span style={{ color: "rgba(255,255,255,0.85)" }}>
-                  {authorizedUsersNames}
+                  {(() => {
+                    const roster = (presenceUsers.length
+                      ? presenceUsers
+                      : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", role: p.role }))
+                    );
+                    const names = roster
+                      .filter((u: any) => pendingTextControllerUserIds.has(u.userId))
+                      .map((u: any) => u.name || "Usuario");
+                    return names.length ? names.join(", ") : "Nenhum";
+                  })()}
                 </span>
               </div>
 
               <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
-                {!eligibleParticipants.length ? (
-                  <div className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.40)" }}>
-                    Nenhum aluno ou dublador conectado
-                  </div>
-                ) : (
-                  eligibleParticipants.map((p: any) => {
+                {(() => {
+                  const roster = (presenceUsers.length
+                    ? presenceUsers
+                    : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", role: p.role }))
+                  );
+                  const eligible = roster.filter((p: any) => {
+                    const r = String(p.role || "").toLowerCase();
+                    return r === "aluno" || r === "dublador" || r === "voice_actor" || r === "student";
+                  });
+                  if (!eligible.length) {
+                    return (
+                      <div className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.40)" }}>
+                        Nenhum aluno ou dublador conectado
+                      </div>
+                    );
+                  }
+                  return eligible.map((p: any) => {
                     const checked = pendingTextControllerUserIds.has(p.userId);
                     return (
                       <label
@@ -2389,8 +2385,8 @@ export default function RecordingRoom() {
                         />
                       </label>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
 
               <div className="flex justify-end gap-2 mt-4">
