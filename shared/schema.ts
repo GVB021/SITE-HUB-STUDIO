@@ -172,6 +172,16 @@ export const takes = pgTable("takes", {
   lineIndex: integer("line_index").notNull(),
   audioUrl: text("audio_url").notNull(),
   durationSeconds: real("duration_seconds").notNull(),
+  
+  // Review workflow fields
+  status: text("status").notNull().default("pending"),
+  directorFeedback: text("director_feedback"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  takeNumber: integer("take_number").notNull().default(1),
+  isFinal: boolean("is_final").default(false),
+  
+  // Existing fields
   isPreferred: boolean("is_preferred").default(false),
   qualityScore: real("quality_score"),
   aiRecommended: boolean("ai_recommended").default(false),
@@ -181,6 +191,8 @@ export const takes = pgTable("takes", {
     sessionIdIdx: index("takes_session_id_idx").on(table.sessionId),
     characterIdIdx: index("takes_character_id_idx").on(table.characterId),
     voiceActorIdIdx: index("takes_voice_actor_id_idx").on(table.voiceActorId),
+    statusIdx: index("takes_status_idx").on(table.status),
+    reviewedByIdx: index("takes_reviewed_by_idx").on(table.reviewedBy),
   };
 });
 
@@ -228,6 +240,8 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type UserRole = typeof userRoles.$inferSelect;
 export type Studio = typeof studios.$inferSelect;
+export type TakeStatus = 'pending' | 'approved' | 'rejected' | 'superseded';
+export type Take = typeof takes.$inferSelect;
 export type StudioProfile = typeof studioProfiles.$inferSelect;
 export type StudioMembership = typeof studioMemberships.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;

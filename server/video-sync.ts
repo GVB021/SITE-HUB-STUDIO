@@ -21,7 +21,9 @@ interface SyncMessage {
     | "text-control:set-controllers"
     | "text-control:grant-controller"
     | "text-control:revoke-controller"
-    | "text-control:update-line";
+    | "text-control:update-line"
+    | "take:approved"
+    | "take:rejected";
   currentTime?: number;
   lineIndex?: number;
   targetUserId?: string;
@@ -35,9 +37,15 @@ interface SyncMessage {
   controllerUserId?: string | null;
   controllerUserIds?: string[];
   text?: string;
+  // Take review fields
+  takeId?: string;
+  voiceActorId?: string;
+  feedback?: string;
+  isFinal?: boolean;
+  reviewedBy?: string;
 }
 
-const rooms = new Map<string, Set<WebSocket & { userId?: string; role?: string; name?: string; sessionId?: string }>>();
+export const rooms = new Map<string, Set<WebSocket & { userId?: string; role?: string; name?: string; sessionId?: string }>>();
 const tempPermissions = new Map<string, Set<string>>();
 const globalControlSessions = new Map<string, boolean>();
 const textControllerSessions = new Map<string, Set<string>>();
@@ -65,7 +73,7 @@ function getRoster(room: Set<WebSocket & { userId?: string; role?: string; name?
   return users;
 }
 
-function broadcast(room: Set<WebSocket>, data: any) {
+export function broadcast(room: Set<WebSocket>, data: any) {
   const payload = JSON.stringify(data);
   room.forEach((client: any) => {
     if (client.readyState === WebSocket.OPEN) client.send(payload);

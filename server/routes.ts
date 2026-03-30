@@ -7,11 +7,13 @@ declare module "express" {
 }
 import type { Server } from "http";
 import { storage } from "./storage";
+import { rooms, broadcast } from "./video-sync";
 import { z } from "zod";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import {
   productions, characters, takes, users, studios, sessions, studioMemberships, userStudioRoles,
+  notifications, sessionParticipants,
   type Production, type Session,
   insertProductionSchema, insertCharacterSchema, insertTakeSchema, insertSessionSchema,
 } from "@shared/schema";
@@ -960,6 +962,159 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(200).json({ message: "Take excluido" });
     } catch (err) {
       res.status(500).json({ message: "Erro ao excluir take" });
+    }
+  });
+
+  // TAKES - APPROVE
+  app.patch("/api/takes/:takeId/approve", requireAuth, async (req, res) => {
+    try {
+      const { takeId } = req.params;
+      const { feedback, setAsFinal } = req.body;
+      const userId = (req.user as any)?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const [take] = await db.select().from(takes).where(eq(takes.id, takeId));
+      if (!take) {
+        return res.status(404).json({ error: "Take not found" });
+      }
+
+      const [participant] = await db.select()
+        .from(sessionParticipants)
+        .where(and(
+          eq(sessionParticipants.sessionId, take.sessionId),
+          eq(sessionParticipants.userId, userId)
+        ));
+
+      const role = participant?.role?.toLowerCase() || "";
+      const userRole = (req.user as any)?.role;
+      const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
+
+      if (!isDirector) {
+        return res.status(403).json({ error: "Only directors can approve takes" });
+      }
+
+      const [updated] = await db.update(takes)
+        .set({
+          status: "approved",
+          directorFeedback: feedback || null,
+          reviewedBy: userId,
+          reviewedAt: new Date(),
+          isFinal: setAsFinal || false,
+        })
+        .where(eq(takes.id, takeId))
+        .returning();
+
+      if (setAsFinal) {
+        await db.update(takes)
+          .set({ status: "superseded" })
+          .where(
+            and(
+              eq(takes.sessionId, take.sessionId),
+              eq(takes.lineIndex, take.lineIndex),
+              eq(takes.characterId, take.characterId),
+              ne(takes.id, takeId)
+            )
+          );
+      }
+
+      await db.insert(notifications).values({
+        userId: take.voiceActorId,
+        type: "take_approved",
+        title: "Take Aprovado! 🎉",
+        message: feedback 
+          ? `Seu take da linha ${take.lineIndex + 1} foi aprovado com feedback: "${feedback}"` 
+          : `Seu take da linha ${take.lineIndex + 1} foi aprovado pelo diretor.`,
+        relatedId: takeId,
+      });
+
+      const room = rooms.get(take.sessionId);
+      if (room) {
+        broadcast(room, {
+          type: "take:approved",
+          takeId,
+          voiceActorId: take.voiceActorId,
+          feedback,
+          isFinal: setAsFinal,
+        });
+      }
+
+      res.json(updated);
+    } catch (err: any) {
+      logger.error("Error approving take:", err);
+      res.status(500).json({ error: err?.message || "Error approving take" });
+    }
+  });
+
+  // TAKES - REJECT
+  app.patch("/api/takes/:takeId/reject", requireAuth, async (req, res) => {
+    try {
+      const { takeId } = req.params;
+      const { feedback } = req.body;
+      const userId = (req.user as any)?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      if (!feedback || !feedback.trim()) {
+        return res.status(400).json({ error: "Feedback is required when rejecting a take" });
+      }
+
+      const [take] = await db.select().from(takes).where(eq(takes.id, takeId));
+      if (!take) {
+        return res.status(404).json({ error: "Take not found" });
+      }
+
+      const [participant] = await db.select()
+        .from(sessionParticipants)
+        .where(and(
+          eq(sessionParticipants.sessionId, take.sessionId),
+          eq(sessionParticipants.userId, userId)
+        ));
+
+      const role = participant?.role?.toLowerCase() || "";
+      const userRole = (req.user as any)?.role;
+      const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
+
+      if (!isDirector) {
+        return res.status(403).json({ error: "Only directors can reject takes" });
+      }
+
+      const [updated] = await db.update(takes)
+        .set({
+          status: "rejected",
+          directorFeedback: feedback,
+          reviewedBy: userId,
+          reviewedAt: new Date(),
+        })
+        .where(eq(takes.id, takeId))
+        .returning();
+
+      await db.insert(notifications).values({
+        userId: take.voiceActorId,
+        type: "take_rejected",
+        title: "Take Rejeitado",
+        message: `Seu take da linha ${take.lineIndex + 1} foi rejeitado. Feedback do diretor: "${feedback}"`,
+        relatedId: takeId,
+      });
+
+      const room = rooms.get(take.sessionId);
+      if (room) {
+        broadcast(room, {
+          type: "take:rejected",
+          takeId,
+          voiceActorId: take.voiceActorId,
+          feedback,
+        });
+      }
+
+      res.json(updated);
+    } catch (err: any) {
+      logger.error("Error rejecting take:", err);
+      res.status(500).json({ error: err?.message || "Error rejecting take" });
     }
   });
 

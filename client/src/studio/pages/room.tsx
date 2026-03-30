@@ -43,6 +43,7 @@ import {
   type VoiceCaptureMode,
 } from "@studio/lib/audio/microphoneManager";
 import MonitorPanel from "@studio/components/audio/MonitorPanel";
+import { TakeReviewActions } from "@studio/components/recording/TakeReviewActions";
 
 
 import {
@@ -1121,6 +1122,10 @@ export default function RecordingRoom() {
             controllerUserIds?: string[];
             startedByUserId?: string;
             targetTime?: number;
+            takeId?: string;
+            voiceActorId?: string;
+            feedback?: string;
+            isFinal?: boolean;
           };
 
           // Permission updates
@@ -1199,6 +1204,29 @@ export default function RecordingRoom() {
             setControlPermissions(new Set());
             setGlobalControlEnabled(false);
             toast({ title: "Permissoes Revogadas", description: "Todas as permissoes temporarias foram removidas." });
+            return;
+          }
+
+          if (msg.type === "take:approved") {
+            queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"] });
+            if (msg.voiceActorId === user?.id) {
+              toast({
+                title: "Take Aprovado! 🎉",
+                description: msg.feedback || "Seu take foi aprovado pelo diretor.",
+              });
+            }
+            return;
+          }
+
+          if (msg.type === "take:rejected") {
+            queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "takes"] });
+            if (msg.voiceActorId === user?.id) {
+              toast({
+                title: "Take Rejeitado",
+                description: msg.feedback || "O diretor solicitou uma nova gravação.",
+                variant: "destructive",
+              });
+            }
             return;
           }
 
@@ -2142,48 +2170,72 @@ export default function RecordingRoom() {
               <audio ref={takePreviewAudioRef} preload="none" />
               <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
                 {(isPrivileged ? takesList : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id)).map((take: any) => (
-                  <div key={take.id} className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <button
-                      onClick={() => {
-                        const audio = takePreviewAudioRef.current;
-                        if (!audio) return;
-                        if (takePreviewId === take.id) {
-                          audio.pause();
-                          audio.currentTime = 0;
-                          setTakePreviewId(null);
-                          return;
-                        }
-                        setTakePreviewId(take.id);
-                        audio.src = `/api/takes/${take.id}/stream`;
-                        audio.play().catch(() => {});
-                      }}
-                      className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
-                      style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.75)" }}
-                      data-testid={`button-play-take-${take.id}`}
-                    >
-                      {takePreviewId === take.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>#{take.lineIndex}</span>
-                        <span className="text-xs font-medium truncate" style={{ color: "rgba(255,255,255,0.80)" }}>{take.characterName || "Take"}</span>
-                        <span className="ml-auto text-xs font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>{take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}</span>
-                      </div>
-                      {isPrivileged && (
-                        <div className="text-[10px] truncate mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
-                          {take.voiceActorName || take.userName || take.userId || take.voiceActorId}
+                  <div key={take.id} className="flex flex-col gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => {
+                          const audio = takePreviewAudioRef.current;
+                          if (!audio) return;
+                          if (takePreviewId === take.id) {
+                            audio.pause();
+                            audio.currentTime = 0;
+                            setTakePreviewId(null);
+                            return;
+                          }
+                          setTakePreviewId(take.id);
+                          audio.src = `/api/takes/${take.id}/stream`;
+                          audio.play().catch(() => {});
+                        }}
+                        className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
+                        style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.75)" }}
+                        data-testid={`button-play-take-${take.id}`}
+                      >
+                        {takePreviewId === take.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>#{take.lineIndex}</span>
+                          <span className="text-xs font-medium truncate" style={{ color: "rgba(255,255,255,0.80)" }}>{take.characterName || "Take"}</span>
+                          <span className="ml-auto text-xs font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>{take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}</span>
                         </div>
-                      )}
+                        {isPrivileged && (
+                          <div className="text-[10px] truncate mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                            {take.voiceActorName || take.userName || take.userId || take.voiceActorId}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleDownloadTake(take)}
+                        className="p-2 rounded-lg transition-colors"
+                        style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.06)" }}
+                        title="Baixar take"
+                        data-testid={`button-download-take-popup-${take.id}`}
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleDownloadTake(take)}
-                      className="p-2 rounded-lg transition-colors"
-                      style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.06)" }}
-                      title="Baixar take"
-                      data-testid={`button-download-take-popup-${take.id}`}
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
+                    
+                    {isDirector && (
+                      <TakeReviewActions
+                        takeId={take.id}
+                        currentStatus={take.status || "pending"}
+                        sessionId={sessionId}
+                      />
+                    )}
+                    
+                    {!isDirector && take.status !== "pending" && take.directorFeedback && (
+                      <div className="text-xs rounded p-2 border-l-2" style={{ 
+                        background: "rgba(255,255,255,0.03)", 
+                        borderColor: take.status === "approved" ? "hsl(160 84% 39%)" : "hsl(0 72% 50%)"
+                      }}>
+                        <div className="font-medium mb-1" style={{ 
+                          color: take.status === "approved" ? "hsl(160 84% 39%)" : "hsl(0 72% 50%)"
+                        }}>
+                          {take.status === "approved" ? "✅ Diretor:" : "❌ Diretor:"}
+                        </div>
+                        <p style={{ color: "rgba(255,255,255,0.70)" }}>{take.directorFeedback}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {takesList.length === 0 && (
