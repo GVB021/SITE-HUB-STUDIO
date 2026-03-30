@@ -1,0 +1,14 @@
+# Configuração de Build para o Railway (Nixpacks)
+# Apenas Node.js e FFmpeg - media pipeline isolada
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "ffmpeg"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
