@@ -90,14 +90,17 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
 
   return (
     <div 
-      className="fixed bottom-0 left-0 right-0 z-[50] transition-all duration-300 ease-in-out"
+      className={cn(
+        "transition-all duration-300 ease-in-out",
+        isExpanded ? "fixed bottom-0 left-0 right-0 z-[50]" : "shrink-0"
+      )}
       style={{
         height: isExpanded ? '200px' : '70px',
         background: 'rgba(15,15,30,0.98)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: '0 -4px 24px rgba(0,0,0,0.3)'
+        boxShadow: isExpanded ? '0 -4px 24px rgba(0,0,0,0.3)' : 'none'
       }}
       data-testid="panel-daily"
       role="region"
@@ -2860,7 +2863,7 @@ export default function RecordingRoom() {
           <div
             ref={scriptViewportRef}
             className="flex-1 overflow-y-auto py-3 px-4 min-h-0 relative"
-            style={{ scrollBehavior: "auto", WebkitOverflowScrolling: "touch" as any, paddingBottom: "90px" }}
+            style={{ scrollBehavior: "auto", WebkitOverflowScrolling: "touch" as any }}
             onScroll={handleScriptViewportScroll}
             onWheelCapture={markScriptUserScrollIntent}
             onTouchMoveCapture={markScriptUserScrollIntent}
