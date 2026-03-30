@@ -931,7 +931,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/sessions/:sessionId/takes", requireAuth, async (req, res) => {
     const session = await verifySessionAccess(req, res, req.params.sessionId);
     if (!session) return;
-    const takesList = await storage.getTakes(req.params.sessionId);
+    const takesList = await storage.getSessionTakesWithDetails(req.params.sessionId);
     res.status(200).json(takesList);
   });
 
