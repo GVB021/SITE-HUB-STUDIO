@@ -822,6 +822,29 @@ export default function RecordingRoom() {
     }
   })();
 
+  const calculateEndLine = useCallback((startLineIndex: number, durationSeconds: number): number => {
+    if (!scriptLines.length || startLineIndex >= scriptLines.length) return startLineIndex;
+    
+    const startLine = scriptLines[startLineIndex];
+    if (!startLine) return startLineIndex;
+    
+    const endTime = startLine.start + durationSeconds;
+    
+    let endLineIndex = startLineIndex;
+    for (let i = startLineIndex; i < scriptLines.length; i++) {
+      const line = scriptLines[i];
+      if (!line) break;
+      
+      if (line.start <= endTime) {
+        endLineIndex = i;
+      } else {
+        break;
+      }
+    }
+    
+    return endLineIndex;
+  }, [scriptLines]);
+
   const { data: takesList = [], refetch: refetchTakes } = useQuery({
     queryKey: ["/api/sessions", sessionId, "takes"],
     queryFn: () => authFetch(`/api/sessions/${sessionId}/takes`),
@@ -2194,15 +2217,20 @@ export default function RecordingRoom() {
                       </button>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>#{take.lineIndex}</span>
-                          <span className="text-xs font-medium truncate" style={{ color: "rgba(255,255,255,0.80)" }}>{take.characterName || "Take"}</span>
-                          <span className="ml-auto text-xs font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>{take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}</span>
+                          <span className="text-sm font-medium truncate" style={{ color: "rgba(255,255,255,0.85)" }}>
+                            {take.characterName || "Take"}
+                          </span>
+                          <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>—</span>
+                          <span className="text-xs truncate" style={{ color: "rgba(255,255,255,0.65)" }}>
+                            {take.voiceActorName || take.userName || "Dublador"}
+                          </span>
+                          <span className="ml-auto text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>
+                            {take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}
+                          </span>
                         </div>
-                        {isPrivileged && (
-                          <div className="text-[10px] truncate mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
-                            {take.voiceActorName || take.userName || take.userId || take.voiceActorId}
-                          </div>
-                        )}
+                        <div className="text-[11px] font-mono mt-1" style={{ color: "rgba(255,255,255,0.50)" }}>
+                          Linhas #{take.lineIndex} → #{calculateEndLine(take.lineIndex, take.durationSeconds || 0)}
+                        </div>
                       </div>
                       <button
                         onClick={() => handleDownloadTake(take)}
