@@ -727,6 +727,7 @@ export default function RecordingRoom() {
   const [customLoop, setCustomLoop] = useState<{ start: number; end: number } | null>(null);
   const [preRoll, setPreRoll] = useState(1);
   const [postRoll, setPostRoll] = useState(1);
+  const [showOnlyMyCharacter, setShowOnlyMyCharacter] = useState(false);
 
   const [shortcuts, setShortcuts] = useState<Shortcuts>(() => {
     try {
@@ -971,6 +972,7 @@ export default function RecordingRoom() {
   const prerollCaptureStartedRef = useRef(false);
   const lastCountdownValueRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const loopStartRef = useRef<number>(0);
   const isRemoteAction = useRef(false);
   const wsReconnectTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -1455,11 +1457,13 @@ export default function RecordingRoom() {
         if (customLoop) {
           loopStart = customLoop.start;
           loopEnd = customLoop.end;
-        } else if (idx !== -1) {
-          const line = scriptLines[idx];
+        } else if (currentLine >= 0 && currentLine < scriptLines.length) {
+          const line = scriptLines[currentLine];
           loopStart = Math.max(0, line.start - preRoll);
           loopEnd = (line.end ?? line.start) + postRoll;
         }
+
+        loopStartRef.current = loopStart;
 
         if (t >= loopEnd) {
           video.currentTime = loopStart;
@@ -1688,12 +1692,19 @@ export default function RecordingRoom() {
       setRecordingStatus("idle");
     }
     videoRef.current.pause();
-    const line = scriptLines[currentLine];
-    const t = line?.start ?? 0;
+    
+    let t: number;
+    if (isLooping) {
+      t = loopStartRef.current;
+    } else {
+      const line = scriptLines[currentLine];
+      t = line?.start ?? 0;
+    }
+    
     videoRef.current.currentTime = t;
     setIsPlaying(false);
     emitVideoEvent("video-seek", { currentTime: t, lineIndex: currentLine });
-  }, [recordingStatus, cancelPreroll, currentLine, scriptLines, emitVideoEvent]);
+  }, [recordingStatus, cancelPreroll, currentLine, scriptLines, emitVideoEvent, isLooping]);
 
   const seek = useCallback((amount: number) => {
     if (!videoRef.current) return;
@@ -2875,15 +2886,29 @@ export default function RecordingRoom() {
                   <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
                     Rolagem livre
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => { setScriptAutoFollow(true); scrollScriptToLine(currentLine, "smooth"); }}
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                    style={{ background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }}
-                    data-testid="button-script-resume-follow"
-                  >
-                    Voltar ao atual
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowOnlyMyCharacter(!showOnlyMyCharacter)}
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                      style={showOnlyMyCharacter
+                        ? { background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
+                        : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)", border: "1px solid rgba(255,255,255,0.08)" }
+                      }
+                      data-testid="button-filter-character"
+                    >
+                      Apenas {recordingProfile.characterName || "meu personagem"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setScriptAutoFollow(true); scrollScriptToLine(currentLine, "smooth"); }}
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                      style={{ background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }}
+                      data-testid="button-script-resume-follow"
+                    >
+                      Voltar ao atual
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2914,7 +2939,10 @@ export default function RecordingRoom() {
                 <p className="text-xs">Adicione um roteiro a producao para ver as falas aqui</p>
               </div>
             )}
-            {scriptLines.map((line, i) => {
+            {scriptLines
+              .map((line, originalIndex) => ({ line, originalIndex }))
+              .filter(({ line }) => !showOnlyMyCharacter || line.character.toLowerCase().trim() === recordingProfile.characterName.toLowerCase().trim())
+              .map(({ line, originalIndex: i }) => {
               const isActive = i === currentLine;
               const isDone = savedTakes.has(i);
               const isInLoop = customLoop && line.start >= customLoop.start && (line.end || line.start) <= customLoop.end;
