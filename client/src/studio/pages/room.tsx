@@ -822,6 +822,13 @@ export default function RecordingRoom() {
     }
   })();
 
+  const filteredScriptLines = useMemo(() => {
+    if (!filterByCharacter || !recordingProfile) return scriptLines;
+    return scriptLines.filter(line => 
+      line.character.toLowerCase() === recordingProfile.characterName.toLowerCase()
+    );
+  }, [filterByCharacter, scriptLines, recordingProfile]);
+
   const { data: takesList = [], refetch: refetchTakes } = useQuery({
     queryKey: ["/api/sessions", sessionId, "takes"],
     queryFn: () => authFetch(`/api/sessions/${sessionId}/takes`),
@@ -925,6 +932,7 @@ export default function RecordingRoom() {
   const [takeCount, setTakeCount] = useState(0);
   const [videoTime, setVideoTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [filterByCharacter, setFilterByCharacter] = useState(false);
 
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [countdownValue, setCountdownValue] = useState(0);
@@ -1913,7 +1921,9 @@ export default function RecordingRoom() {
       const ss = String(Math.floor((tcMs % 60000) / 1000)).padStart(2, "0");
       const ms = String(tcMs % 1000).padStart(3, "0");
       const cleanName = (s: string) => s.replace(/[^a-zA-Z0-9]/g, "");
-      const fileName = `${cleanName(activeProfile.characterName)}_${cleanName(activeProfile.voiceActorName)}_${hh}${mm}${ss}${ms}.wav`;
+      const getFirstName = (fullName: string) => fullName.trim().split(/\s+/)[0].toLowerCase();
+      const firstName = getFirstName(activeProfile.voiceActorName);
+      const fileName = `${cleanName(activeProfile.characterName)}_${firstName}_${hh}${mm}${ss}${ms}.wav`;
 
       console.log("[SaveTake] Saving with profile:", {
         character: activeProfile.characterName,
@@ -2213,6 +2223,21 @@ export default function RecordingRoom() {
                       >
                         <Download className="w-4 h-4" />
                       </button>
+                      {isPrivileged && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Excluir take #${take.lineIndex + 1}?`)) {
+                              deleteTakeMutation.mutate(take.id);
+                            }
+                          }}
+                          className="p-2 rounded-lg transition-colors"
+                          style={{ color: "rgba(239, 68, 68, 0.75)", background: "rgba(239, 68, 68, 0.1)" }}
+                          title="Excluir take"
+                          data-testid={`button-delete-take-popup-${take.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                     
                     {isDirector && (
@@ -2818,6 +2843,22 @@ export default function RecordingRoom() {
               Roteiro
             </span>
             <div className="flex items-center gap-2">
+              {recordingProfile && (
+                <button
+                  type="button"
+                  onClick={() => setFilterByCharacter(!filterByCharacter)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-all"
+                  style={filterByCharacter 
+                    ? { background: "hsl(var(--primary) / 0.20)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.30)" }
+                    : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)", border: "1px solid rgba(255,255,255,0.10)" }
+                  }
+                  title={filterByCharacter ? "Mostrando apenas " + recordingProfile.characterName : "Filtrar por personagem"}
+                  data-testid="button-filter-character"
+                >
+                  <User className="w-3 h-3" />
+                  {filterByCharacter ? recordingProfile.characterName : "PERSONAGEM"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setScriptAutoFollow(true); scrollScriptToLine(currentLine, "smooth"); }}
@@ -2834,7 +2875,7 @@ export default function RecordingRoom() {
               <span className="text-xs" style={{ color: "rgba(255,255,255,0.40)" }}>
                 <span className="font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>{currentLine + 1}</span>
                 {" "}/{" "}
-                {scriptLines.length}
+                {filterByCharacter ? filteredScriptLines.length : scriptLines.length}
               </span>
             </div>
           </div>
@@ -2893,7 +2934,8 @@ export default function RecordingRoom() {
                 <p className="text-xs">Adicione um roteiro a producao para ver as falas aqui</p>
               </div>
             )}
-            {scriptLines.map((line, i) => {
+            {filteredScriptLines.map((line, filteredIndex) => {
+              const i = filterByCharacter ? scriptLines.findIndex(l => l.start === line.start && l.character === line.character) : filteredIndex;
               const isActive = i === currentLine;
               const isDone = savedTakes.has(i);
               const isInLoop = customLoop && line.start >= customLoop.start && (line.end || line.start) <= customLoop.end;
@@ -2941,12 +2983,7 @@ export default function RecordingRoom() {
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    {isDone && (
-                      <span className="ml-auto flex items-center gap-1.5 text-[16px] font-medium" style={{ color: "hsl(160 84% 60%)" }}>
-                        <CheckCircle2 className="w-5 h-5" /> Salvo
-                      </span>
-                    )}
-                    {lineTakes.length > 0 && !isDone && (
+                    {lineTakes.length > 0 && (
                       <span className="ml-auto text-[16px]" style={{ color: "rgba(255,255,255,0.40)" }}>
                         {lineTakes.length} take{lineTakes.length > 1 ? "s" : ""}
                       </span>
