@@ -1123,14 +1123,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const user = (req as any).user!;
       const studioId = req.params.studioId;
+      
+      // Platform owner also sees only the requested studio
       if (user.role === "platform_owner") {
-        const allTakes = await storage.getAllTakesGrouped();
-        return res.status(200).json(allTakes);
+        const studioTakes = await storage.getStudioTakesGrouped(studioId);
+        return res.status(200).json(studioTakes);
       }
+      
+      // Verify user has director role or higher
       const roles = await storage.getUserRolesInStudio(user.id, studioId);
-      if (!roles.includes("studio_admin")) {
-        return res.status(403).json({ message: "Acesso restrito a administradores" });
+      const hasDirectorRole = roles.some(r => 
+        ["studio_admin", "engenheiro_audio", "diretor"].includes(r)
+      );
+      
+      if (!hasDirectorRole) {
+        return res.status(403).json({ 
+          message: "Acesso restrito a diretores e administradores" 
+        });
       }
+      
       const studioTakes = await storage.getStudioTakesGrouped(studioId);
       res.status(200).json(studioTakes);
     } catch (err: any) {

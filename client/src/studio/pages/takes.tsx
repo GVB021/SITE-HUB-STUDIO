@@ -565,8 +565,8 @@ const Takes = memo(function Takes({ studioId }: { studioId: string }) {
   const { hasMinRole } = useStudioRole(studioId);
   const { toast } = useToast();
   const isPlatformOwner = user?.role === "platform_owner";
-  const canManageAudio = hasMinRole("engenheiro_audio");
-  const hasAccess = isPlatformOwner || canManageAudio;
+  const isDirectorOrAbove = hasMinRole("diretor");
+  const hasAccess = isPlatformOwner || isDirectorOrAbove;
 
   const { data: takesRaw, isLoading } = useQuery<TakeDetail[]>({
     queryKey: ["/api/studios", studioId, "takes", "grouped"],
@@ -641,7 +641,7 @@ const Takes = memo(function Takes({ studioId }: { studioId: string }) {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <ShieldAlert className="h-12 w-12 text-destructive mb-4" />
           <h2 className="text-xl font-bold mb-2">Acesso Restrito</h2>
-          <p className="text-muted-foreground">Esta pagina e exclusiva para administradores do estudio e da plataforma.</p>
+          <p className="text-muted-foreground">Esta pagina e exclusiva para diretores, engenheiros de audio e administradores.</p>
         </div>
       </PageSection>
     );
@@ -697,33 +697,19 @@ const Takes = memo(function Takes({ studioId }: { studioId: string }) {
 
       {!isLoading && grouped && (
         <div className="mt-6">
-          {isPlatformOwner ? (
-            Array.from(grouped.studios.entries()).map(([studioId, { name, productions }]) => (
-              <StudioGroup
-                key={studioId}
-                studioId={studioId}
-                studioName={name}
-                productionsMap={productions}
+          {Array.from(grouped.studios.entries()).map(([, { productions }]) => (
+            Array.from(productions.entries()).map(([productionId, { name, sessions }]) => (
+              <ProductionGroup
+                key={productionId}
+                productionId={productionId}
+                productionName={name}
+                sessionsMap={sessions}
                 selectedIds={selectedIds}
                 onToggle={handleToggle}
                 onToggleAll={handleToggleAll}
               />
             ))
-          ) : (
-            Array.from(grouped.studios.entries()).map(([, { productions }]) => (
-              Array.from(productions.entries()).map(([productionId, { name, sessions }]) => (
-                <ProductionGroup
-                  key={productionId}
-                  productionId={productionId}
-                  productionName={name}
-                  sessionsMap={sessions}
-                  selectedIds={selectedIds}
-                  onToggle={handleToggle}
-                  onToggleAll={handleToggleAll}
-                />
-              ))
-            ))
-          )}
+          ))}
         </div>
       )}
     </PageSection>

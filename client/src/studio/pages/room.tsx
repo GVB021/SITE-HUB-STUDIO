@@ -779,7 +779,7 @@ export default function RecordingRoom() {
   const { data: production, isLoading: productionLoading } = useProductionScript(studioId, session?.productionId);
   const { data: charactersList } = useCharactersList(session?.productionId);
 
-  const scriptLines: ScriptLine[] = (() => {
+  const scriptLines: ScriptLine[] = useMemo(() => {
     if (!production?.scriptJson) return [];
     try {
       const parsed = JSON.parse(production.scriptJson);
@@ -820,7 +820,7 @@ export default function RecordingRoom() {
       console.error("[Room] Failed to parse scriptJson:", e);
       return [];
     }
-  })();
+  }, [production?.scriptJson]);
 
   const filteredScriptLines = useMemo(() => {
     if (!filterByCharacter || !recordingProfile) return scriptLines;
