@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, useRef } from "react";
+import { useState, useMemo, useCallback, memo, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { authFetch } from "@studio/lib/auth-fetch";
 import { useAuth } from "@studio/hooks/use-auth";
@@ -107,12 +107,23 @@ function AudioPlayer({ takeId }: { takeId: string }) {
     }
   }, [playing, takeId]);
 
+  // Cleanup audio element on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-7 w-7"
       onClick={toggle}
+      aria-label={playing ? "Pausar audio" : "Reproduzir audio"}
       data-testid={`button-play-${takeId}`}
     >
       {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
@@ -132,6 +143,8 @@ function TakeRow({
   const filename = formatTakeFilename(take);
   const [downloading, setDownloading] = useState(false);
 
+  const { toast } = useToast();
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -144,7 +157,12 @@ function TakeRow({
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (err: any) {
+      toast({ 
+        title: "Erro no download", 
+        description: err?.message || "Verifique sua conexao e tente novamente",
+        variant: "destructive" 
+      });
     } finally {
       setDownloading(false);
     }
@@ -192,6 +210,7 @@ function TakeRow({
         className="h-7 w-7"
         onClick={handleDownload}
         disabled={downloading}
+        aria-label={downloading ? "Baixando..." : "Baixar take"}
         data-testid={`button-download-${take.id}`}
       >
         {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
@@ -225,6 +244,8 @@ function SessionGroup({
   const takeIds = takes.map(t => t.id);
   const allSelected = takeIds.every(id => selectedIds.has(id));
 
+  const { toast } = useToast();
+
   const handleDownloadAll = async () => {
     setDownloading(true);
     try {
@@ -237,7 +258,12 @@ function SessionGroup({
       a.download = `${sessionTitle.replace(/[^a-zA-Z0-9_\-]/g, "_")}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (err: any) {
+      toast({ 
+        title: "Erro ao baixar sessao", 
+        description: err?.message || "Verifique sua conexao e tente novamente",
+        variant: "destructive" 
+      });
     } finally {
       setDownloading(false);
     }
@@ -422,6 +448,8 @@ function ProductionGroup({
   const [downloading, setDownloading] = useState(false);
   const totalTakes = Array.from(sessionsMap.values()).reduce((sum, s) => sum + s.takes.length, 0);
 
+  const { toast } = useToast();
+
   const handleDownloadAll = async () => {
     setDownloading(true);
     try {
@@ -434,7 +462,12 @@ function ProductionGroup({
       a.download = `${productionName.replace(/[^a-zA-Z0-9_\-]/g, "_")}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (err: any) {
+      toast({ 
+        title: "Erro ao baixar producao", 
+        description: err?.message || "Verifique sua conexao e tente novamente",
+        variant: "destructive" 
+      });
     } finally {
       setDownloading(false);
     }

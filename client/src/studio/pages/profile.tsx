@@ -60,7 +60,7 @@ const Profile = memo(function Profile() {
   }
 
   const initials = (user.firstName && user.lastName)
-    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+    ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
     : (user.displayName || user.email || "?").slice(0, 2).toUpperCase();
 
   return (

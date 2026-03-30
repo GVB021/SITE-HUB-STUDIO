@@ -176,8 +176,9 @@ export default function Login() {
 
               <form onSubmit={submit} className="space-y-4" data-testid="form-login">
                 <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">{lang === "en" ? "Email" : "Email"}</label>
+                  <label htmlFor="login-email" className="text-xs text-muted-foreground">{lang === "en" ? "Email" : "Email"}</label>
                   <Input
+                    id="login-email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder={lang === "en" ? "you@studio.com" : "voce@estudio.com"}
@@ -186,8 +187,9 @@ export default function Login() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">{lang === "en" ? "Password" : "Senha"}</label>
+                  <label htmlFor="login-password" className="text-xs text-muted-foreground">{lang === "en" ? "Password" : "Senha"}</label>
                   <Input
+                    id="login-password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

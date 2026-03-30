@@ -70,6 +70,8 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
             <button
               onClick={() => setAnimationsEnabled(!animationsEnabled)}
               className="flex items-center gap-2 text-xs text-muted-foreground hover:text-white transition-colors"
+              aria-label={animationsEnabled ? "Desativar animações" : "Ativar animações"}
+              type="button"
             >
               {animationsEnabled ? <ToggleRight className="w-5 h-5 text-primary" /> : <ToggleLeft className="w-5 h-5" />}
               {animationsEnabled ? "Animações ON" : "Animações OFF"}
