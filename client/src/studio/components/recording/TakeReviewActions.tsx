@@ -51,6 +51,9 @@ export function TakeReviewActions({
   
   const rejectMutation = useMutation({
     mutationFn: async () => {
+      if (!feedback.trim()) {
+        throw new Error("Feedback é obrigatório ao rejeitar um take");
+      }
       return authFetch(`/api/takes/${takeId}/reject`, {
         method: "PATCH",
         body: JSON.stringify({ feedback }),
@@ -120,7 +123,7 @@ export function TakeReviewActions({
           placeholder={
             feedbackMode === 'approve'
               ? "Feedback opcional (ex: 'Excelente entonação!')"
-              : "Explique o que precisa ser corrigido (opcional)"
+              : "Explique o que precisa ser corrigido (obrigatório)"
           }
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
@@ -154,6 +157,7 @@ export function TakeReviewActions({
             }
           }}
           disabled={
+            (feedbackMode === 'reject' && !feedback.trim()) ||
             approveMutation.isPending ||
             rejectMutation.isPending
           }
