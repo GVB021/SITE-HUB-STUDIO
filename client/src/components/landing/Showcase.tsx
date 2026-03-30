@@ -101,8 +101,8 @@ export function Showcase({ onClose, layoutId }: ShowcaseProps) {
             </div>
             <div className="order-1 md:order-2 space-y-8">
                <div className="space-y-4">
-                 <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
-                   <Zap className="w-6 h-6 text-blue-600" />
+                 <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center">
+                   <Zap className="w-6 h-6 text-amber-600" />
                  </div>
                  <h2 className="text-4xl font-semibold tracking-tight">Instant Assembly</h2>
                  <p className="text-xl text-gray-500 leading-relaxed">

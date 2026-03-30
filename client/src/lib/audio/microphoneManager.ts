@@ -31,9 +31,9 @@ export async function requestMicrophone(
       audio: {
         sampleRate: SAMPLE_RATE,
         channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        echoCancellation: isStudio,
+        noiseSuppression: isStudio,
+        autoGainControl: isStudio,
       },
     });
   } catch (err) {
@@ -68,9 +68,24 @@ export async function requestMicrophone(
   const filterNodes: AudioNode[] = [];
 
   if (isStudio) {
-    // Studio mode now also bypasses all processing for raw capture
-    sourceNode.connect(gainNode);
-    console.log("[Mic] Studio mode: source → gain (no processing)");
+    const highPassFilter = audioContext.createBiquadFilter();
+    highPassFilter.type = "highpass";
+    highPassFilter.frequency.value = 80;
+    highPassFilter.Q.value = 0.7;
+    filterNodes.push(highPassFilter);
+
+    const compressor = audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 12;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.15;
+    filterNodes.push(compressor);
+
+    sourceNode.connect(highPassFilter);
+    highPassFilter.connect(compressor);
+    compressor.connect(gainNode);
+    console.log("[Mic] Studio mode: highpass(80Hz) → compressor → gain");
   } else {
     sourceNode.connect(gainNode);
     console.log("[Mic] Original mode: source → gain (no processing)");

@@ -5,24 +5,21 @@ declare module "express" {
     params: Record<string, string>;
   }
 }
-
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { db } from "./db";
-import { eq, and, lt, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   productions, characters, takes, users, studios, sessions, studioMemberships, userStudioRoles,
-  sessionParticipants,
   type Production, type Session,
   insertProductionSchema, insertCharacterSchema, insertTakeSchema, insertSessionSchema,
 } from "@shared/schema";
-import { normalizePlatformRole, normalizeStudioRole } from "@shared/roles";
-import { httpSessions } from "@shared/models/auth";
+import { normalizePlatformRole } from "@shared/roles";
 import { requireAuth, requireAdmin, requireStudioAccess, requireStudioRole } from "./middleware/auth";
 import { logger } from "./lib/logger";
 import { spawn } from "child_process";
-import { createHash, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -30,19 +27,14 @@ import { Readable } from "stream";
 import {
   checkSupabaseConnection,
   configureSupabase,
-  createSignedSupabaseUrlFromPublicUrl,
   deleteFromSupabaseStorage,
-  downloadFromSupabaseStorage,
   downloadFromSupabaseStorageUrl,
   isSupabaseConfigured,
-  listSupabaseStorageObjects,
   parseSupabaseStorageUrl,
   uploadToSupabaseStorage,
 } from "./lib/supabase";
-import { decideStudioAutoEntry } from "./lib/studio-auto-entry";
-import { annotateTakeVersions } from "./lib/take-versioning";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "public", "uploads");
@@ -65,10 +57,22 @@ const mediaUpload = multer({
   limits: { fileSize: 1024 * 1024 * 1024 },
 });
 
+function safeAudioPath(audioUrl: string): string | null {
+  const normalized = audioUrl.replace(/^\/+/, "");
+  const resolved = path.resolve(process.cwd(), "public", normalized);
+  const uploadsBase = path.resolve(process.cwd(), "public", "uploads");
+  if (!resolved.startsWith(uploadsBase)) return null;
+  return resolved;
+}
+
+function isHttpUrl(input: string) {
+  return /^https?:\/\//i.test(String(input || ""));
+}
+
 function filenameFromAudioUrl(audioUrl: string, fallback = "take.wav") {
   const raw = String(audioUrl || "").trim();
   if (!raw) return fallback;
-  if (!/^https?:\/\//i.test(raw)) {
+  if (!isHttpUrl(raw)) {
     const base = path.basename(raw);
     return base || fallback;
   }
@@ -82,14 +86,6 @@ function filenameFromAudioUrl(audioUrl: string, fallback = "take.wav") {
   }
 }
 
-function safeAudioPath(audioUrl: string): string | null {
-  const normalized = audioUrl.replace(/^\/+/, "");
-  const resolved = path.resolve(process.cwd(), "public", normalized);
-  const uploadsBase = path.resolve(process.cwd(), "public", "uploads");
-  if (!resolved.startsWith(uploadsBase)) return null;
-  return resolved;
-}
-
 function toNodeReadable(body: any) {
   if (!body) return null;
   try {
@@ -97,6 +93,52 @@ function toNodeReadable(body: any) {
   } catch {
     return null;
   }
+}
+
+function sendFileWithRange(req: Request, res: Response, filePath: string, contentType = "audio/wav") {
+  const stat = fs.statSync(filePath);
+  const total = stat.size;
+  const range = String(req.headers.range || "");
+  res.setHeader("Accept-Ranges", "bytes");
+
+  if (!range) {
+    res.status(200);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", String(total));
+    fs.createReadStream(filePath).pipe(res);
+    return;
+  }
+
+  const m = range.match(/bytes=(\d+)-(\d+)?/);
+  if (!m) {
+    res.status(416);
+    res.setHeader("Content-Range", `bytes */${total}`);
+    res.end();
+    return;
+  }
+
+  const start = Math.min(total - 1, Math.max(0, Number(m[1] || 0)));
+  const endRaw = m[2] ? Number(m[2]) : total - 1;
+  const end = Math.min(total - 1, Math.max(start, endRaw));
+  const chunkSize = end - start + 1;
+
+  res.status(206);
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+  res.setHeader("Content-Length", String(chunkSize));
+  fs.createReadStream(filePath, { start, end }).pipe(res);
+}
+
+async function fetchAudioResponse(audioUrl: string, range?: string) {
+  if (isSupabaseConfigured() && parseSupabaseStorageUrl(audioUrl)) {
+    return await downloadFromSupabaseStorageUrl(audioUrl, { range });
+  }
+  const res = await fetch(audioUrl, { headers: range ? { range } : undefined });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${text}`.trim());
+  }
+  return res;
 }
 
 function safeJobId(jobId: string): string | null {
@@ -139,220 +181,6 @@ function secondsToTimecodeToken(seconds: number) {
   return `${hh}${mm}${ss}${ms}`;
 }
 
-const ALLOWED_AUDIO_EXTENSIONS = new Set([".wav", ".mp3", ".m4a"]);
-const ALLOWED_AUDIO_MIME_PREFIXES = ["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a", "audio/m4a"];
-const MAX_TAKE_FILE_SIZE_BYTES = 100 * 1024 * 1024;
-const MIN_SAMPLE_RATE_HZ = 44100;
-const SUPABASE_DOWNLOAD_URL_TTL_SECONDS = 900;
-
-const audioRateLimitMap = new Map<string, { count: number; resetAt: number }>();
-function audioRateLimiter(req: Request, res: Response, next: any) {
-  const userId = (req as any).user?.id || req.ip || "unknown";
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  const maxRequests = 60;
-
-  let entry = audioRateLimitMap.get(userId);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + windowMs };
-  }
-  entry.count++;
-  audioRateLimitMap.set(userId, entry);
-
-  if (entry.count > maxRequests) {
-    logger.warn("[Rate Limit] Audio access exceeded", { userId, ip: req.ip });
-    return res.status(429).json({ message: "Muitas solicitações de áudio. Tente novamente em 1 minuto." });
-  }
-  next();
-}
-
-function requirePlatformOwnerDelete(req: Request, res: Response) {
-  const user = req.user as any;
-  const role = normalizePlatformRole(user?.role);
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  if (role !== "owner" && !isMaster) {
-    res.status(403).json({ message: "Somente PLATFORM_OWNER pode excluir recursos" });
-    return false;
-  }
-  return true;
-}
-
-function normalizeTakeFolder(value: unknown) {
-  return normalizeSegment(String(value || ""));
-}
-
-function resolveTakeSearchPrefix(take: any, settings: Record<string, string>) {
-  const bucket = String(settings.SUPABASE_BUCKET || "takes").trim();
-  const takesPath = String(take?.takesPath || settings.DEFAULT_TAKES_PATH || "uploads").trim();
-  const baseFolder = normalizeTakeFolder(takesPath || "uploads");
-  const studioName = normalizeTakeFolder(take?.studioName);
-  const productionName = normalizeTakeFolder(take?.productionName);
-  const actorName = normalizeTakeFolder(take?.voiceActorName);
-  const characterName = normalizeTakeFolder(take?.characterName);
-  const segments =
-    bucket.toLowerCase() === baseFolder
-      ? [studioName, productionName, actorName, characterName]
-      : [baseFolder, studioName, productionName, actorName, characterName];
-  const prefix = segments.filter(Boolean).join("/");
-  if (!bucket || !prefix) return null;
-  return { bucket, prefix: `${prefix}/` };
-}
-
-async function findTakeAudioInSupabase(take: any) {
-  if (!isSupabaseConfigured()) return null;
-  const settings = await storage.getAllSettings();
-  const target = resolveTakeSearchPrefix(take, settings);
-  if (!target) return null;
-  const rows = await listSupabaseStorageObjects({
-    bucket: target.bucket,
-    prefix: target.prefix,
-    limit: 50,
-    offset: 0,
-    sortBy: { column: "updated_at", order: "desc" },
-  });
-  for (const row of rows as any[]) {
-    const name = String(row?.name || "").trim();
-    if (!name) continue;
-    const ext = path.extname(name).toLowerCase();
-    if (!ALLOWED_AUDIO_EXTENSIONS.has(ext)) continue;
-    const objectPath = `${target.prefix.replace(/\/+$/g, "")}/${name.replace(/^\/+/g, "")}`;
-    return { bucket: target.bucket, path: objectPath };
-  }
-  return null;
-}
-
-type PendingTakeUploadJob = {
-  takeId: string;
-  objectPath: string;
-  bucket: string;
-  contentType: string;
-  buffer: Buffer;
-  md5: string;
-  userId: string | null;
-  sessionId: string;
-  attempts: number;
-  createdAt: number;
-};
-
-const pendingTakeUploadQueue: PendingTakeUploadJob[] = [];
-const deadLetterUploadQueue: PendingTakeUploadJob[] = [];
-let takeUploadQueueRunning = false;
-
-function appendDeadLetterJob(job: PendingTakeUploadJob, reason: string) {
-  deadLetterUploadQueue.push(job);
-  const payload = {
-    ...job,
-    reason,
-    failedAt: new Date().toISOString(),
-  };
-  try {
-    fs.appendFileSync(path.join(mediaJobsDir, "audio-upload-dead-letter.jsonl"), `${JSON.stringify(payload)}\n`);
-  } catch {}
-}
-
-function detectAudioFormat(fileName: string, mimeType: string) {
-  const ext = path.extname(String(fileName || "").trim().toLowerCase());
-  const mime = String(mimeType || "").trim().toLowerCase();
-  const extAllowed = ALLOWED_AUDIO_EXTENSIONS.has(ext);
-  const mimeAllowed = ALLOWED_AUDIO_MIME_PREFIXES.some((item) => mime.startsWith(item));
-  return { ext, mime, extAllowed, mimeAllowed, format: ext.replace(".", "").toUpperCase() || "WAV" };
-}
-
-function estimateWavSampleRate(input: Buffer): number | null {
-  if (!input || input.length < 32) return null;
-  const riff = input.toString("ascii", 0, 4);
-  const wave = input.toString("ascii", 8, 12);
-  if (riff !== "RIFF" || wave !== "WAVE") return null;
-  try {
-    return input.readUInt32LE(24);
-  } catch {
-    return null;
-  }
-}
-
-function checksumMd5(input: Buffer) {
-  return createHash("md5").update(input).digest("hex");
-}
-
-async function createAudioAuditLog(req: Request, action: string, extra: Record<string, unknown>) {
-  const user = (req as any).user;
-  await storage.createAuditLog({
-    userId: user?.id || null,
-    action,
-    details: JSON.stringify({
-      ...extra,
-      ip: req.ip || null,
-      userAgent: req.headers["user-agent"] || null,
-      at: new Date().toISOString(),
-    }),
-  });
-}
-
-async function uploadTakeJobToSupabase(job: PendingTakeUploadJob) {
-  const publicUrl = await uploadToSupabaseStorage({
-    bucket: job.bucket,
-    path: job.objectPath,
-    buffer: job.buffer,
-    contentType: job.contentType,
-  });
-  const verifyRes = await downloadFromSupabaseStorageUrl(publicUrl, { range: "bytes=0-1" });
-  if (!verifyRes.ok) {
-    throw new Error(`Verificação de upload falhou: HTTP ${verifyRes.status}`);
-  }
-  return publicUrl;
-}
-
-function enqueueTakeUploadRetry(job: PendingTakeUploadJob) {
-  pendingTakeUploadQueue.push(job);
-  if (!takeUploadQueueRunning) {
-    void processPendingTakeUploadQueue();
-  }
-}
-
-async function processPendingTakeUploadQueue() {
-  if (takeUploadQueueRunning) return;
-  takeUploadQueueRunning = true;
-  while (pendingTakeUploadQueue.length > 0) {
-    const current = pendingTakeUploadQueue.shift()!;
-    try {
-      const url = await uploadTakeJobToSupabase(current);
-      await storage.updateTakeAudioUrl(current.takeId, url);
-      await storage.createAuditLog({
-        userId: current.userId,
-        action: "take.upload.retry.success",
-        details: JSON.stringify({
-          takeId: current.takeId,
-          sessionId: current.sessionId,
-          objectPath: current.objectPath,
-          attempts: current.attempts,
-          md5: current.md5,
-        }),
-      });
-    } catch (error: any) {
-      current.attempts += 1;
-      if (current.attempts >= 5) {
-        appendDeadLetterJob(current, String(error?.message || error));
-        await storage.createAuditLog({
-          userId: current.userId,
-          action: "take.upload.retry.dead_letter",
-          details: JSON.stringify({
-            takeId: current.takeId,
-            sessionId: current.sessionId,
-            attempts: current.attempts,
-            error: String(error?.message || error),
-          }),
-        });
-        continue;
-      }
-      await new Promise((resolve) => setTimeout(resolve, Math.min(6000, 800 * current.attempts)));
-      pendingTakeUploadQueue.push(current);
-    }
-  }
-  takeUploadQueueRunning = false;
-}
-
 function jobStatusPath(jobId: string): string {
   return path.join(mediaJobsDir, jobId, "status.json");
 }
@@ -365,168 +193,29 @@ function ensureJobDir(jobId: string): string {
 
 async function logAdminAction(req: Request, action: string, details?: string) {
   try {
-    const user = (req as any).user;
-    const normalizedEmail = String(user?.email || "").trim().toLowerCase();
-    const isMaster = normalizedEmail === "borbaggabriel@gmail.com";
-    const payload = {
-      details: details || null,
-      method: req.method,
-      path: req.path,
-      actorEmail: user?.email || null,
-      actorRole: user?.role || null,
-      ip: req.ip || null,
-      at: new Date().toISOString(),
-    };
-    await storage.createAuditLog({
-      userId: user?.id || null,
-      action: isMaster ? `MASTER_${action}` : action,
-      details: JSON.stringify(payload),
-    });
+    const userId = (req as any).user?.id;
+    await storage.createAuditLog({ userId, action, details });
   } catch {}
-}
-
-async function getUserById(id: string) {
-  const [row] = await db.select().from(users).where(eq(users.id, id));
-  return row || null;
-}
-
-function isMasterEmail(email: string | null | undefined) {
-  return String(email || "").trim().toLowerCase() === "borbaggabriel@gmail.com";
-}
-
-
-function sessionUserIdFromPayload(payload: any): string | null {
-  const userId = payload?.passport?.user;
-  if (!userId) return null;
-  return String(userId);
 }
 
 async function verifyProductionAccess(req: Request, res: Response, productionId: string): Promise<Production | null> {
   const prod = await storage.getProduction(productionId);
   if (!prod) { res.status(404).json({ message: "Producao nao encontrada" }); return null; }
   const user = (req as any).user!;
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  if (user.role === "owner" || isMaster) return prod;
+  if (user.role === "platform_owner") return prod;
   const hasAccess = await storage.verifyUserStudioAccess(user.id, prod.studioId);
   if (!hasAccess) { res.status(403).json({ message: "Acesso negado" }); return null; }
   return prod;
 }
 
-async function verifySessionAccess(req: Request, res: Response, sessionId: string): Promise<any> {
+async function verifySessionAccess(req: Request, res: Response, sessionId: string): Promise<Session | null> {
   const session = await storage.getSession(sessionId);
   if (!session) { res.status(404).json({ message: "Sessao nao encontrada" }); return null; }
-  
   const user = (req as any).user!;
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  // Verificar se a sessão está agendada para o futuro
-  const now = new Date();
-  const scheduledTime = new Date(session.scheduledAt);
-  
-  // Permitir acesso para owner, master e directores mesmo antes do horário
-  const isAdmin = user.role === "owner" || isMaster;
-  const studioRoles = (await storage.getUserRolesInStudio(user.id, session.studioId)).map(normalizeStudioRole);
-  const isDirector = studioRoles.includes("director");
-  
-  if (!isAdmin && !isDirector && scheduledTime > now) {
-    const timeUntilStart = scheduledTime.getTime() - now.getTime();
-    const minutesUntilStart = Math.ceil(timeUntilStart / (1000 * 60));
-    
-    return res.status(403).json({ 
-      message: "Sessao bloqueada ate o horario de inicio",
-      scheduledAt: session.scheduledAt,
-      minutesUntilStart,
-      canAccess: false,
-      sessionTitle: session.title
-    });
-  }
-
-  if (user.role === "owner" || isMaster) return session;
+  if (user.role === "platform_owner") return session;
   const hasAccess = await storage.verifyUserStudioAccess(user.id, session.studioId);
   if (!hasAccess) { res.status(403).json({ message: "Acesso negado" }); return null; }
   return session;
-}
-
-async function canManageSessionTakes(user: any, sessionId: string, studioId: string): Promise<boolean> {
-  const platformRole = normalizePlatformRole(user?.role);
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-
-  if (platformRole === "owner" || isMaster) return true;
-  const studioRoles = (await storage.getUserRolesInStudio(user.id, studioId)).map(normalizeStudioRole);
-  if (studioRoles.includes("admin")) return true;
-  const participants = await storage.getSessionParticipants(sessionId);
-  const self = participants.find((p) => String(p.userId || "") === String(user.id || ""));
-  if (!self) return false;
-  const participantRole = normalizeStudioRole(self.role);
-  return participantRole === "director" || participantRole === "admin" || participantRole === "owner";
-}
-
-async function resolveRecordingAccess(user: any, sessionId: string, studioId: string) {
-  const canManage = await canManageSessionTakes(user, sessionId, studioId);
-  return {
-    canManage,
-    restrictedVoiceActorId: canManage ? undefined : String(user.id || ""),
-  };
-}
-
-async function canAccessTake(user: any, take: any, sessionId: string, studioId: string): Promise<boolean> {
-  // Platform owner always has access
-  const platformRole = normalizePlatformRole(user?.role);
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isMaster = email === "borbaggabriel@gmail.com";
-  if (platformRole === "owner" || isMaster) return true;
-
-  // Studio admins have access
-  const studioRoles = (await storage.getUserRolesInStudio(user.id, studioId)).map(normalizeStudioRole);
-  if (studioRoles.includes("admin")) return true;
-
-  // Session directors have access
-  const participants = await storage.getSessionParticipants(sessionId);
-  const self = participants.find((p) => String(p.userId || "") === String(user.id || ""));
-  if (!self) return false;
-  const participantRole = normalizeStudioRole(self.role);
-  if (participantRole === "director") return true;
-
-  // Take owner (who recorded) has access
-  if (String(take.voiceActorId || "") === String(user.id || "")) return true;
-
-  return false;
-}
-
-async function downloadTakeAudio(take: any): Promise<Buffer | null> {
-  try {
-    if (!take.audioUrl) return null;
-    
-    // If it's already a Supabase URL, download from there
-    if (take.audioUrl.includes("supabase") || take.audioUrl.includes("/storage/v1/")) {
-      const response = await fetch(take.audioUrl);
-      if (!response.ok) return null;
-      const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
-    }
-    
-    // If it's a local file, read from disk
-    if (take.audioUrl.startsWith("/uploads/")) {
-      const filename = path.basename(take.audioUrl);
-      const filePath = path.join(uploadsDir, filename);
-      if (fs.existsSync(filePath)) {
-        return fs.readFileSync(filePath);
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    logger.error("[DownloadTakeAudio] Failed to download audio", { takeId: take.id, error: String(error) });
-    return null;
-  }
-}
-
-function studioTimecodeSettingKey(studioId: string): string {
-  return `STUDIO_TIMECODE_FORMAT_${studioId}`;
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -665,13 +354,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // STUDIOS
   app.get("/api/studios", requireAuth, async (req, res) => {
     const user = (req as any).user!;
-    const email = String(user?.email || "").toLowerCase().trim();
-    const isMaster = email === "borbaggabriel@gmail.com";
-
-    if (normalizePlatformRole(user.role) === "owner" || isMaster) {
+    if (normalizePlatformRole(user.role) === "platform_owner") {
       const allStudios = await storage.getStudios();
       const studiosWithRoles = await Promise.all(
-        allStudios.map(async (s) => ({ ...s, userRoles: ["owner"] }))
+        allStudios.map(async (s) => ({ ...s, userRoles: ["platform_owner"] }))
       );
       return res.status(200).json(studiosWithRoles);
     }
@@ -683,50 +369,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       })
     );
     res.status(200).json(studiosWithRoles);
-  });
-
-  app.get("/api/studios/auto-entry", requireAuth, async (req, res) => {
-    const user = (req as any).user!;
-    const email = String(user?.email || "").toLowerCase().trim();
-    const isMaster = email === "borbaggabriel@gmail.com";
-
-    const baseStudios = (normalizePlatformRole(user.role) === "owner" || isMaster)
-      ? await storage.getStudios()
-      : await storage.getStudiosForUser(user.id);
-    
-    if (baseStudios.length === 0) {
-      logger.error("User without studios on auto-entry", { userId: user.id, role: user.role });
-      return res.status(409).json({ message: "Nenhum estúdio vinculado ao usuário." });
-    }
-
-    const decision = decideStudioAutoEntry(baseStudios);
-    
-    if (decision.mode === "error") {
-      logger.error("Invalid single studio for auto-entry", {
-        userId: user.id,
-        studioCount: baseStudios.length,
-        message: decision.message,
-      });
-      return res.status(500).json({ message: "Falha ao resolver redirecionamento automático do estúdio." });
-    }
-
-    if (decision.mode === "redirect") {
-      const studio = await storage.getStudio(decision.studioId);
-      if (!studio) {
-        return res.status(404).json({ message: "Estudio nao encontrado para redirecionamento automatico" });
-      }
-      return res.status(200).json({
-        mode: "redirect",
-        studioId: decision.studioId,
-        target: `/hub-dub/studio/${decision.studioId}/dashboard`,
-        count: 1,
-      });
-    }
-
-    return res.status(200).json({
-      mode: "select",
-      count: Math.max(baseStudios.length, 2),
-    });
   });
 
   app.get("/api/studios/:studioId", requireAuth, requireStudioAccess, async (req, res) => {
@@ -748,7 +390,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/profile", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.patch("/api/studios/:studioId/profile", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const parsed = studioProfilePatchSchema.parse(req.body || {});
       const profile = await storage.upsertStudioProfile(req.params.studioId, parsed.data || {});
@@ -845,9 +487,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(members);
   });
 
-  app.post("/api/studios/:studioId/members/:membershipId/approve", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/members/:membershipId/approve", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
-      const validRoles = z.enum(["admin", "director", "dubber"]);
+      const validRoles = z.enum(["studio_admin", "diretor", "dublador", "engenheiro_audio", "aluno"]);
       const body = z.object({
         role: validRoles.optional(),
         roles: z.array(validRoles).optional(),
@@ -875,7 +517,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/studios/:studioId/members/:membershipId/reject", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/members/:membershipId/reject", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     const membership = await storage.getMembership(req.params.membershipId);
     if (!membership || membership.studioId !== req.params.studioId) {
       return res.status(404).json({ message: "Membro nao encontrado" });
@@ -894,7 +536,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // MEMBERS - UPDATE ROLES
-  app.put("/api/studios/:studioId/members/:membershipId/roles", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.put("/api/studios/:studioId/members/:membershipId/roles", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const { roles } = req.body;
       if (!Array.isArray(roles) || roles.length === 0) {
@@ -913,9 +555,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // MEMBERS - REMOVE
-  app.delete("/api/studios/:studioId/members/:membershipId", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.delete("/api/studios/:studioId/members/:membershipId", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
-      if (!requirePlatformOwnerDelete(req, res)) return;
       const membership = await storage.getMembership(req.params.membershipId);
       if (!membership || membership.studioId !== req.params.studioId) {
         return res.status(404).json({ message: "Membro nao encontrado" });
@@ -941,7 +582,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
     const studioAdmins = await storage.getStudioMemberships(req.params.studioId);
     for (const m of studioAdmins) {
-      if (m.role === "admin" || (req.studioRoles || []).includes("admin")) {
+      if (m.role === "studio_admin" || (req.studioRoles || []).includes("studio_admin")) {
         await storage.createNotification({
           userId: m.userId,
           type: "join_request",
@@ -966,7 +607,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // STUDIO PENDING MEMBERS
-  app.get("/api/studios/:studioId/pending-members", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.get("/api/studios/:studioId/pending-members", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const pending = await storage.getPendingMembersForStudio(req.params.studioId);
       res.status(200).json(pending);
@@ -988,7 +629,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(prod);
   });
 
-  app.post("/api/studios/:studioId/productions", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/productions", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const input = insertProductionSchema.parse({ ...req.body, studioId: req.params.studioId });
       const prod = await storage.createProduction(input);
@@ -998,7 +639,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.patch("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const prod = await storage.getProduction(req.params.id);
       if (!prod) return res.status(404).json({ message: "Producao nao encontrada" });
@@ -1010,20 +651,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.delete("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
-      if (!requirePlatformOwnerDelete(req, res)) return;
       const prod = await storage.getProduction(req.params.id);
       if (!prod) return res.status(404).json({ message: "Producao nao encontrada" });
       if (prod.studioId !== req.params.studioId) return res.status(403).json({ message: "Acesso negado" });
-      
-      // Auditar antes de excluir
-      await storage.createAuditLog({
-        userId: (req as any).user?.id || null,
-        action: "PRODUCTION_DELETED",
-        details: JSON.stringify({ productionId: prod.id, name: prod.name, studioId: prod.studioId })
-      });
-
       await storage.deleteProduction(req.params.id);
       res.status(200).json({ ok: true });
     } catch (err: any) {
@@ -1078,7 +710,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(session);
   });
 
-  app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("admin", "director"), async (req, res) => {
+  app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
       const settings = await storage.getAllSettings();
@@ -1100,6 +732,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Caminho de salvamento invalido" });
       }
 
+      const status = await checkSupabaseConnection(false);
+      if (!isSupabaseConfigured() || !status.ok) {
+        return res.status(400).json({ message: "Supabase indisponivel" });
+      }
+
       const input = insertSessionSchema.parse({
         title: req.body.title,
         productionId: req.body.productionId,
@@ -1118,11 +755,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("admin", "director"), async (req, res) => {
+  app.delete("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
     try {
-      if (!requirePlatformOwnerDelete(req, res)) return;
       const session = await storage.getSession(req.params.id);
       if (!session || session.studioId !== req.params.studioId) return res.status(404).json({ message: "Sessao nao encontrada" });
+      const userId = (req.user as any)?.id;
+      const userRole = (req.user as any)?.role;
+      const studioRole = (req as any).studioRole;
+      const isAdmin = userRole === "platform_owner" || studioRole === "studio_admin";
+      if (!isAdmin && session.createdBy !== userId) {
+        return res.status(403).json({ message: "Voce so pode excluir sessoes criadas por voce" });
+      }
       await storage.deleteSession(req.params.id);
       res.status(200).json({ message: "Sessao excluida" });
     } catch (err) {
@@ -1130,7 +773,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("admin", "director"), async (req, res) => {
+  app.patch("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session || session.studioId !== req.params.studioId) return res.status(404).json({ message: "Sessao nao encontrada" });
@@ -1138,193 +781,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(200).json(updated);
     } catch (err) {
       res.status(400).json({ message: "Dados invalidos" });
-    }
-  });
-
-  app.get("/api/studios/:studioId/timecode-format", requireAuth, requireStudioAccess, async (req, res) => {
-    const key = studioTimecodeSettingKey(req.params.studioId);
-    const value = await storage.getSetting(key);
-    const allowed = new Set(["HH:MM:SS", "HH:MM:SS:MMM", "HH:MM:SS:FF"]);
-    const format = value && allowed.has(value) ? value : "HH:MM:SS";
-    res.status(200).json({ format });
-  });
-
-  app.put("/api/studios/:studioId/timecode-format", requireAuth, requireStudioRole("admin"), async (req, res) => {
-    try {
-      const payload = z.object({
-        format: z.enum(["HH:MM:SS", "HH:MM:SS:MMM", "HH:MM:SS:FF"]),
-      }).parse(req.body);
-      const key = studioTimecodeSettingKey(req.params.studioId);
-      await storage.upsertSetting(key, payload.format);
-      await storage.createAuditLog({
-        userId: (req as any).user?.id || null,
-        action: "studio.timecode_format.updated",
-        details: JSON.stringify({ studioId: req.params.studioId, format: payload.format }),
-      });
-      res.status(200).json({ ok: true, format: payload.format });
-    } catch (err) {
-      res.status(400).json({ message: "Formato de timecode inválido" });
-    }
-  });
-
-  // STUDIO HARDWARE CONFIG
-  app.get("/api/studios/:studioId/hardware-config", requireAuth, requireStudioRole("admin"), async (req, res) => {
-    try {
-      const key = `studio_hardware_config_${req.params.studioId}`;
-      const config = await storage.getSetting(key);
-      
-      if (!config) {
-        // Return default config
-        const defaultConfig = {
-          sampleRate: 44100,
-          bufferSize: 256,
-          latencyTarget: 20,
-          allowedFormats: ['WAV', 'MP3']
-        };
-        return res.status(200).json(defaultConfig);
-      }
-      
-      res.status(200).json(JSON.parse(config));
-    } catch (err) {
-      res.status(500).json({ message: "Erro ao buscar configurações de hardware" });
-    }
-  });
-
-  app.put("/api/studios/:studioId/hardware-config", requireAuth, requireStudioRole("admin"), async (req, res) => {
-    try {
-      const payload = z.object({
-        sampleRate: z.union([z.literal(44100), z.literal(48000)]),
-        bufferSize: z.union([z.literal(128), z.literal(256), z.literal(512), z.literal(1024)]),
-        latencyTarget: z.union([z.literal(10), z.literal(20), z.literal(50)]),
-        allowedFormats: z.array(z.enum(["WAV", "MP3", "M4A"])),
-      }).parse(req.body);
-      
-      const key = `studio_hardware_config_${req.params.studioId}`;
-      await storage.upsertSetting(key, JSON.stringify(payload));
-      
-      await storage.createAuditLog({
-        userId: (req as any).user?.id || null,
-        action: "studio.hardware_config.updated",
-        details: JSON.stringify({ studioId: req.params.studioId, config: payload }),
-      });
-      
-      res.status(200).json(payload);
-    } catch (err) {
-      res.status(400).json({ message: "Configurações de hardware inválidas" });
-    }
-  });
-
-  // STUDIO MONITORING LOGS
-  app.get("/api/studios/:studioId/monitoring/logs", requireAuth, requireStudioRole("admin"), async (req, res) => {
-    try {
-      // Get audit logs for this studio
-      const auditLogs = await storage.getAuditLogs();
-      const studioLogs = auditLogs.filter(log => {
-        try {
-          const details = JSON.parse(log.details || '{}');
-          return details.studioId === req.params.studioId;
-        } catch {
-          return false;
-        }
-      });
-
-      // Transform to simplified format
-      const simplifiedLogs = studioLogs.map(log => {
-        const details = JSON.parse(log.details || '{}');
-        let type = 'access';
-        let message = 'Atividade registrada';
-
-        if (log.action?.includes('recording')) {
-          type = 'recording';
-          message = log.action?.includes('started') ? 'Iniciou gravação' : 'Parou gravação';
-        } else if (log.action?.includes('upload')) {
-          type = 'upload';
-          message = log.action?.includes('completed') ? 'Concluiu upload' : 'Iniciou upload';
-        } else if (log.action?.includes('error')) {
-          type = 'error';
-          message = 'Erro detectado';
-        } else if (log.action?.includes('access') || log.action?.includes('login')) {
-          type = 'access';
-          message = log.action?.includes('login') ? 'Acessou o sistema' : 'Entrou no estúdio';
-        }
-
-        return {
-          id: log.id,
-          type,
-          message,
-          timestamp: log.createdAt,
-          userId: log.userId,
-          userName: details.userName || details.userDisplayName || 'Usuário',
-          action: log.action,
-          details: log.details
-        };
-      });
-
-      res.status(200).json(simplifiedLogs);
-    } catch (err) {
-      res.status(500).json({ message: "Erro ao buscar logs de monitoramento" });
-    }
-  });
-
-  // STUDIO SESSIONS STATUS
-  app.get("/api/studios/:studioId/sessions/status", requireAuth, requireStudioRole("admin"), async (req, res) => {
-    try {
-      const sessions = await storage.getSessions(req.params.studioId);
-      const sessionsWithStatus = sessions.map(session => ({
-        id: session.id,
-        title: session.title,
-        status: session.status,
-        scheduledAt: session.scheduledAt,
-        startedAt: null, // TODO: Add to session schema if needed
-        completedAt: null, // TODO: Add to session schema if needed
-        participantCount: 0, // TODO: Calculate from participants table
-        productionName: session.productionId || 'Sem produção'
-      }));
-      
-      res.status(200).json(sessionsWithStatus);
-    } catch (err) {
-      res.status(500).json({ message: "Erro ao buscar status das sessões" });
-    }
-  });
-
-  // SESSION STATUS ENDPOINT
-  app.get("/api/sessions/:sessionId/status", requireAuth, async (req, res) => {
-    try {
-      const session = await storage.getSession(req.params.sessionId);
-      if (!session) {
-        return res.status(404).json({ message: "Sessão não encontrada" });
-      }
-
-      const user = (req as any).user!;
-      const now = new Date();
-      const scheduledTime = new Date(session.scheduledAt);
-      
-      // Verificar permissões especiais
-      const email = String(user?.email || "").toLowerCase().trim();
-      const isMaster = email === "borbaggabriel@gmail.com";
-      const isAdmin = user.role === "owner" || isMaster;
-      const studioRoles = (await storage.getUserRolesInStudio(user.id, session.studioId)).map(normalizeStudioRole);
-      const isDirector = studioRoles.includes("director");
-      
-      const hasSpecialAccess = isAdmin || isDirector;
-      const canAccess = hasSpecialAccess || scheduledTime <= now;
-      
-      let minutesUntilStart = 0;
-      if (!canAccess && scheduledTime > now) {
-        const timeUntilStart = scheduledTime.getTime() - now.getTime();
-        minutesUntilStart = Math.ceil(timeUntilStart / (1000 * 60));
-      }
-
-      res.json({
-        canAccess,
-        scheduledAt: session.scheduledAt,
-        minutesUntilStart,
-        hasSpecialAccess,
-        sessionTitle: session.title,
-        productionId: session.productionId
-      });
-    } catch (err) {
-      res.status(500).json({ message: "Erro ao verificar status da sessão" });
     }
   });
 
@@ -1343,7 +799,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const participant = await storage.addSessionParticipant({
         sessionId: req.params.sessionId,
         userId: req.body.userId || (req as any).user!.id,
-        role: req.body.role || "dubber",
+        role: req.body.role || "dublador",
       });
       res.status(201).json(participant);
     } catch (err) {
@@ -1351,35 +807,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/sessions/:sessionId/audit-events", requireAuth, async (req, res) => {
-    try {
-      const session = await verifySessionAccess(req, res, req.params.sessionId);
-      if (!session) return;
-      const payload = z.object({
-        action: z.string().min(3).max(120),
-        details: z.string().max(5000).optional(),
-      }).parse(req.body);
-      await storage.createAuditLog({
-        userId: (req as any).user?.id || null,
-        action: payload.action,
-        details: payload.details || JSON.stringify({ sessionId: req.params.sessionId }),
-      });
-      res.status(200).json({ ok: true });
-    } catch (err) {
-      res.status(400).json({ message: "Evento de auditoria inválido" });
-    }
-  });
-
   // TAKES
   app.post("/api/sessions/:sessionId/takes", requireAuth, upload.single("audio"), async (req, res) => {
     try {
       const sessionId = req.params.sessionId;
-      logger.info("[Take Upload] Request received", {
-        sessionId,
-        hasFile: Boolean(req.file),
-        mimeType: req.file?.mimetype || null,
-        fileSize: req.file?.size || 0,
-      });
       const body = z.object({
         characterId: z.string().min(1),
         voiceActorId: z.string().min(1),
@@ -1389,62 +820,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         audioUrl: z.string().optional(),
         timecode: z.string().optional(),
         startTimeSeconds: z.coerce.number().min(0).optional(),
-        isPreferred: z.coerce.boolean().optional(),
-        lineText: z.string().max(500).optional(),
-        voiceActorName: z.string().max(200).optional(),
       }).parse(req.body);
 
       const sessionCheck = await verifySessionAccess(req, res, sessionId);
       if (!sessionCheck) return;
 
       const settings = await storage.getAllSettings();
-      // Always use supabase when configured — ignore DB setting that may be stale/local
-      const storageProvider = isSupabaseConfigured() ? "supabase" : ((sessionCheck as any).storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "local");
+      const storageProvider = (sessionCheck as any).storageProvider || settings.DEFAULT_STORAGE_PROVIDER || "supabase";
       const takesPath = (sessionCheck as any).takesPath || settings.DEFAULT_TAKES_PATH || "uploads";
-      const supabaseBucket = settings.SUPABASE_BUCKET || "uploads";
+      const supabaseBucket = settings.SUPABASE_BUCKET || "takes";
 
       let audioUrl = body.audioUrl || "";
       let contentType = "audio/wav";
-      let localFilePath = "";
-      let audioMd5 = "";
-      let audioSizeBytes = 0;
-      let sampleRateHz: number | null = null;
-      let audioFormat = "WAV";
-      const actorUserId = String((req as any).user?.id || "");
 
       if (req.file) {
-        if (req.file.size > MAX_TAKE_FILE_SIZE_BYTES) {
-          return res.status(400).json({ message: "Arquivo excede o limite de 100MB" });
-        }
         const originalName = req.file.originalname || "";
         const safeName = originalName.replace(/[^a-zA-Z0-9_.\-]/g, "");
-        const formatCheck = detectAudioFormat(safeName || originalName, req.file.mimetype || "");
-        if (!formatCheck.extAllowed && !formatCheck.mimeAllowed) {
-          return res.status(400).json({ message: "Formato inválido. Use MP3, WAV ou M4A." });
-        }
         const ext = path.extname(safeName || "") || ".wav";
         const filename = `take_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
         const filePath = path.join(uploadsDir, filename);
         fs.writeFileSync(filePath, req.file.buffer);
-        localFilePath = filePath;
         audioUrl = `/uploads/${filename}`;
         contentType = req.file.mimetype || contentType;
-        audioMd5 = checksumMd5(req.file.buffer);
-        audioSizeBytes = req.file.size || req.file.buffer.length || 0;
-        sampleRateHz = estimateWavSampleRate(req.file.buffer);
-        if (sampleRateHz !== null && sampleRateHz < MIN_SAMPLE_RATE_HZ) {
-          return res.status(400).json({ message: "Taxa de amostragem mínima é 44.1kHz" });
-        }
-        audioFormat = formatCheck.format;
-        logger.info("[Take Upload] File buffered locally", {
-          sessionId,
-          filename,
-          contentType,
-          fileSize: req.file.size,
-          md5: audioMd5,
-          format: audioFormat,
-          sampleRateHz,
-        });
       }
 
       if (!audioUrl) {
@@ -1459,36 +856,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         audioUrl,
         durationSeconds: body.durationSeconds ?? 0,
         qualityScore: body.qualityScore ?? null,
-        isPreferred: Boolean(body.isPreferred),
-        voiceActorName: body.voiceActorName || null,
       });
       const take = await storage.createTake(takeInput);
-      logger.info("[Take Upload] DB row created", {
-        takeId: take.id,
-        sessionId,
-        lineIndex: take.lineIndex,
-        voiceActorId: take.voiceActorId,
-        durationSeconds: take.durationSeconds,
-      });
-      if (take.isPreferred) {
-        await storage.createAuditLog({
-          userId: (req as any).user?.id || null,
-          action: "take.saved_without_approval",
-          details: JSON.stringify({ takeId: take.id, sessionId: take.sessionId, lineIndex: take.lineIndex }),
-        });
-      }
-
-      await createAudioAuditLog(req, "take.upload.created", {
-        takeId: take.id,
-        sessionId,
-        lineIndex: take.lineIndex,
-        storageProvider,
-        audioFormat,
-        sampleRateHz,
-        durationSeconds: take.durationSeconds,
-        bytes: audioSizeBytes || req.file?.size || 0,
-        md5: audioMd5 || null,
-      });
 
       if (req.file && storageProvider === "supabase" && isSupabaseConfigured()) {
         try {
@@ -1515,82 +884,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               .where(eq(users.id, String(body.voiceActorId))),
           ]);
 
+          const studioName = normalizeSegment(studioRow?.name || "");
           const productionName = normalizeSegment(productionRow?.name || "");
-          const sessionTitle = normalizeSegment((sessionCheck as any).title || sessionId);
-
-          // Prefer artistic name sent from client, fall back to account data
-          const actorNameRaw = (body.voiceActorName?.trim()) ||
+          const actorNameRaw =
             actorRow?.artistName ||
             actorRow?.displayName ||
             actorRow?.fullName ||
             `${actorRow?.firstName || ""} ${actorRow?.lastName || ""}`.trim() ||
             actorRow?.email ||
             "";
-          // Use only the first name for folder and filename token
-          const actorFirstName = actorNameRaw.trim().split(/\s+/)[0] || "ator";
-          const actorFolder = normalizeSegment(actorFirstName);
+          const actorFolder = normalizeSegment(actorNameRaw);
           const characterFolder = normalizeSegment(characterRow?.name || "");
 
-          const actorToken = normalizeTokenUpper(actorFirstName);
+          const actorToken = normalizeTokenUpper(actorNameRaw);
           const characterToken = normalizeTokenUpper(characterRow?.name || "");
-          // Filename: PERSONAGEM_PRIMEIRONOME_TIMECODE.wav (always consistent)
           const filename = `${characterToken}_${actorToken}_${timecodeToken}.wav`;
 
-          const pathSegments = [productionName, sessionTitle, characterFolder, actorFolder, filename];
+          const baseFolder = normalizeSegment(String(takesPath || "uploads"));
+          const pathSegments =
+            String(supabaseBucket || "").trim().toLowerCase() === baseFolder
+              ? [studioName, productionName, actorFolder, characterFolder, filename]
+              : [baseFolder, studioName, productionName, actorFolder, characterFolder, filename];
           const objectPath = pathSegments.filter(Boolean).join("/");
-          const uploadJob: PendingTakeUploadJob = {
-            takeId: take.id,
+          const publicUrl = await uploadToSupabaseStorage({
             bucket: supabaseBucket,
-            objectPath,
-            contentType,
+            path: objectPath,
             buffer: req.file.buffer,
-            md5: audioMd5 || checksumMd5(req.file.buffer),
-            userId: actorUserId || null,
-            sessionId,
-            attempts: 1,
-            createdAt: Date.now(),
-          };
-          const publicUrl = await uploadTakeJobToSupabase(uploadJob);
+            contentType,
+          });
           await storage.updateTakeAudioUrl(take.id, publicUrl);
           (take as any).audioUrl = publicUrl;
-          await createAudioAuditLog(req, "take.upload.supabase.synced", {
-            takeId: take.id,
-            sessionId,
-            objectPath,
-            bucket: supabaseBucket,
-            md5: uploadJob.md5,
-            bytes: audioSizeBytes || req.file.size,
-          });
-          logger.info("[Take Upload] Supabase sync complete", {
-            takeId: take.id,
-            objectPath,
-            bucket: supabaseBucket,
-          });
         } catch (e: any) {
           logger.error("[Take Upload] Supabase upload failed", { takeId: take.id, message: e?.message });
-          if (req.file) {
-            enqueueTakeUploadRetry({
-              takeId: take.id,
-              bucket: supabaseBucket,
-              objectPath,
-              contentType,
-              buffer: req.file.buffer,
-              md5: audioMd5 || checksumMd5(req.file.buffer),
-              userId: actorUserId || null,
-              sessionId,
-              attempts: 1,
-              createdAt: Date.now(),
-            });
-            await createAudioAuditLog(req, "take.upload.retry.queued", {
-              takeId: take.id,
-              sessionId,
-              reason: String(e?.message || e),
-            });
-          }
         }
       }
 
-      logger.info("[Take Upload] Completed", { takeId: take.id, sessionId, md5: audioMd5 || null });
       res.status(201).json(take);
     } catch (err: any) {
       logger.error("[Take Upload] Create error", { message: err?.message });
@@ -1602,74 +930,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const session = await verifySessionAccess(req, res, req.params.sessionId);
     if (!session) return;
     const takesList = await storage.getTakes(req.params.sessionId);
-    const canManage = await canManageSessionTakes((req as any).user, req.params.sessionId, session.studioId);
-    if (canManage) {
-      res.status(200).json(takesList);
-      return;
-    }
-    res.status(200).json(takesList.filter((take) => take.isPreferred));
-  });
-
-  app.get("/api/sessions/:sessionId/recordings", requireAuth, async (req, res) => {
-    try {
-      const session = await verifySessionAccess(req, res, req.params.sessionId);
-      if (!session) return;
-      const user = (req as any).user!;
-      logger.info("[Recordings] Fetch requested", {
-        sessionId: req.params.sessionId,
-        userId: user.id,
-        queryParams: req.query,
-      });
-
-      const query = z.object({
-        page: z.coerce.number().int().min(1).optional(),
-        pageSize: z.coerce.number().int().min(1).max(20).optional(),
-        search: z.string().max(120).optional(),
-        userId: z.string().max(120).optional(),
-        sortBy: z.enum(['createdAt', 'durationSeconds', 'lineIndex', 'characterName']).optional(),
-        sortDir: z.enum(['asc', 'desc']).optional(),
-      }).parse(req.query);
-      const page = query.page || 1;
-      const pageSize = query.pageSize || 10;
-      const search = query.search?.trim();
-
-      const { canManage, restrictedVoiceActorId } = await resolveRecordingAccess(user, req.params.sessionId, session.studioId);
-      const effectiveUserId = canManage ? query.userId : restrictedVoiceActorId;
-
-      const result = await storage.getSessionRecordingsPage({
-        sessionId: req.params.sessionId,
-        page,
-        pageSize,
-        search,
-        userId: effectiveUserId,
-      });
-
-      const items = annotateTakeVersions(result.items);
-
-      if (canManage) {
-        await storage.createAuditLog({
-          userId: user.id,
-          action: "recordings.access.privileged",
-          details: JSON.stringify({ sessionId: req.params.sessionId, count: result.total }),
-        });
-      }
-
-      const pageCount = Math.max(1, Math.ceil(result.total / pageSize));
-      res.status(200).json({
-        items,
-        total: result.total,
-        page: result.page,
-        pageSize: result.pageSize,
-        pageCount,
-      });
-    } catch (error: any) {
-      logger.error("[Recordings] Database fetch failure", {
-        sessionId: req.params.sessionId,
-        userId: (req as any)?.user?.id,
-        message: error?.message,
-      });
-      res.status(500).json({ message: "Falha ao consultar gravações no banco de dados" });
-    }
+    res.status(200).json(takesList);
   });
 
   app.post("/api/takes/:id/prefer", requireAuth, async (req, res) => {
@@ -1678,133 +939,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!takeRecord) return res.status(404).json({ message: "Take nao encontrado" });
       const session = await verifySessionAccess(req, res, takeRecord.sessionId);
       if (!session) return;
-      const user = (req as any).user!;
-      const canManage = await canManageSessionTakes(user, takeRecord.sessionId, session.studioId);
-      if (!canManage) return res.status(403).json({ message: "Somente director pode aprovar takes" });
       const take = await storage.setPreferredTake(req.params.id);
-
-      await storage.createAuditLog({
-        userId: user.id,
-        action: "take.approved",
-        details: JSON.stringify({
-          takeId: take.id,
-          sessionId: take.sessionId,
-          lineIndex: take.lineIndex,
-          approvedAt: new Date().toISOString(),
-        }),
-      });
-
-      // Respond immediately — client should not wait for the Supabase upload
       res.status(200).json(take);
-
-      // Fire-and-forget: upload approved take to Supabase in background
-      if (isSupabaseConfigured()) {
-        (async () => {
-          try {
-            const settings = await storage.getAllSettings();
-            const storageProvider = settings.DEFAULT_STORAGE_PROVIDER || "supabase";
-            const supabaseBucket = settings.SUPABASE_BUCKET || "takes";
-
-            if (storageProvider === "supabase") {
-              const status = await checkSupabaseConnection(false);
-              if (!status.ok) throw new Error(status.reason || "Supabase indisponivel");
-
-              const sessionInfo = await storage.getSession(take.sessionId);
-              const studioId = String(sessionInfo?.studioId || "");
-              const productionId = String(sessionInfo?.productionId || "");
-
-              const [[studioRow], [productionRow], [characterRow], [actorRow]] = await Promise.all([
-                studioId
-                  ? db.select({ name: studios.name }).from(studios).where(eq(studios.id, studioId))
-                  : Promise.resolve([]),
-                productionId
-                  ? db.select({ name: productions.name }).from(productions).where(eq(productions.id, productionId))
-                  : Promise.resolve([]),
-                db.select({ name: characters.name }).from(characters).where(eq(characters.id, String(take.characterId))),
-                db.select({ artistName: users.artistName, displayName: users.displayName, fullName: users.fullName, firstName: users.firstName, lastName: users.lastName, email: users.email })
-                  .from(users)
-                  .where(eq(users.id, String(take.voiceActorId))),
-              ]);
-
-              const productionName = normalizeSegment(productionRow?.name || "");
-              const actorNameRaw =
-                actorRow?.artistName ||
-                actorRow?.displayName ||
-                actorRow?.fullName ||
-                `${actorRow?.firstName || ""} ${actorRow?.lastName || ""}`.trim() ||
-                actorRow?.email ||
-                "";
-              const actorFolder = normalizeSegment(actorNameRaw);
-              const characterFolder = normalizeSegment(characterRow?.name || "");
-
-              const actorToken = normalizeTokenUpper(actorNameRaw);
-              const characterToken = normalizeTokenUpper(characterRow?.name || "");
-              const timecodeToken = secondsToTimecodeToken((take as any).startTimeSeconds || 0);
-              const filename = `${characterToken}_${actorToken}_${timecodeToken}.wav`;
-
-              const baseFolder = "upload";
-              const pathSegments = [baseFolder, productionName, take.sessionId, characterFolder, actorFolder, filename];
-              const objectPath = pathSegments.filter(Boolean).join("/");
-
-              const audioBuffer = await downloadTakeAudio(take);
-              if (audioBuffer) {
-                const uploadJob: PendingTakeUploadJob = {
-                  takeId: take.id,
-                  bucket: supabaseBucket,
-                  objectPath,
-                  contentType: "audio/wav",
-                  buffer: audioBuffer,
-                  md5: checksumMd5(audioBuffer),
-                  userId: user.id,
-                  sessionId: take.sessionId,
-                  attempts: 1,
-                  createdAt: Date.now(),
-                };
-
-                const publicUrl = await uploadTakeJobToSupabase(uploadJob);
-                await storage.updateTakeAudioUrl(take.id, publicUrl);
-
-                await createAudioAuditLog(req, "take.approved.supabase.uploaded", {
-                  takeId: take.id,
-                  sessionId: take.sessionId,
-                  objectPath,
-                  bucket: supabaseBucket,
-                });
-
-                logger.info("[Take Approval] Supabase upload complete", { takeId: take.id, objectPath });
-              }
-            }
-          } catch (e: any) {
-            logger.error("[Take Approval] Background Supabase upload failed", { takeId: take.id, message: e?.message });
-          }
-        })();
-      }
     } catch (err) {
       res.status(404).json({ message: "Take nao encontrado" });
-    }
-  });
-
-  app.put("/api/takes/:id/preferred", requireAuth, async (req, res) => {
-    try {
-      const [take] = await db.select().from(takes).where(eq(takes.id, req.params.id));
-      if (!take) return res.status(404).json({ message: "Take nao encontrado" });
-      
-      const user = (req as any).user!;
-      const session = await storage.getSession(take.sessionId);
-      if (!session) return res.status(404).json({ message: "Sessao nao encontrada" });
-      
-      const canManage = await canManageSessionTakes(user, take.sessionId, session.studioId);
-      if (!canManage) return res.status(403).json({ message: "Acesso negado" });
-
-      const updated = await storage.setPreferredTake(req.params.id);
-      await createAudioAuditLog(req, "take.set_preferred", {
-        takeId: take.id,
-        sessionId: take.sessionId,
-        lineIndex: take.lineIndex,
-      });
-      res.status(200).json(updated);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Erro ao atualizar take" });
     }
   });
 
@@ -1812,38 +950,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const [takeRecord] = await db.select().from(takes).where(eq(takes.id, req.params.id));
       if (!takeRecord) return res.status(404).json({ message: "Take nao encontrado" });
-
-      const user = (req as any).user!;
-      const session = await storage.getSession(takeRecord.sessionId);
-      
-      // Allow Platform Owner OR Session Managers (Director/Admin) to delete
-      const isPlatformOwner = normalizePlatformRole(user.role) === "owner" || isMasterEmail(user.email);
-      const canManage = session ? await canManageSessionTakes(user, takeRecord.sessionId, session.studioId) : false;
-
-      if (!isPlatformOwner && !canManage) {
-        return res.status(403).json({ message: "Acesso negado para excluir este take" });
+      const userId = (req.user as any)?.id;
+      const userRole = (req.user as any)?.role;
+      const isAdmin = userRole === "platform_owner" || userRole === "studio_admin";
+      if (!isAdmin && takeRecord.voiceActorId !== userId) {
+        return res.status(403).json({ message: "Voce so pode excluir seus proprios takes" });
       }
-
       await storage.deleteTake(req.params.id);
-      
-      // Attempt to clean up from storage if needed (optional implementation detail)
-      if (isSupabaseConfigured() && takeRecord.audioUrl && !takeRecord.audioUrl.startsWith("discarded://")) {
-        try {
-           const parsed = parseSupabaseStorageUrl(takeRecord.audioUrl);
-           if (parsed) {
-             await deleteFromSupabaseStorage({ bucket: parsed.bucket, path: parsed.path });
-           } else {
-             // Fallback search logic if needed, but usually URL has path
-           }
-        } catch (e) {
-          logger.warn("Failed to cleanup Supabase file", { error: e });
-        }
-      }
-
-      await createAudioAuditLog(req, "take.deleted.permanent", {
-        takeId: takeRecord.id,
-        sessionId: takeRecord.sessionId,
-      });
       res.status(200).json({ message: "Take excluido" });
     } catch (err) {
       res.status(500).json({ message: "Erro ao excluir take" });
@@ -1855,12 +968,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const user = (req as any).user!;
       const studioId = req.params.studioId;
-      if (user.role === "owner") {
+      if (user.role === "platform_owner") {
         const allTakes = await storage.getAllTakesGrouped();
         return res.status(200).json(allTakes);
       }
       const roles = await storage.getUserRolesInStudio(user.id, studioId);
-      if (!roles.includes("admin")) {
+      if (!roles.includes("studio_admin")) {
         return res.status(403).json({ message: "Acesso restrito a administradores" });
       }
       const studioTakes = await storage.getStudioTakesGrouped(studioId);
@@ -1871,146 +984,90 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // TAKES - INDIVIDUAL DOWNLOAD
-  app.get("/api/takes/:id/download", requireAuth, audioRateLimiter, async (req, res) => {
+  app.get("/api/takes/:id/download", requireAuth, async (req, res) => {
     try {
       const takeList = await storage.getTakesByIds([req.params.id]);
       if (takeList.length === 0) return res.status(404).json({ message: "Take nao encontrado" });
       const take = takeList[0];
       const user = (req as any).user!;
-      const hasAccess = await canAccessTake(user, take, take.sessionId, take.studioId);
-      if (!hasAccess) return res.status(403).json({ message: "Acesso negado" });
-
-      if (!isSupabaseConfigured()) {
-        return res.status(503).json({ message: "Supabase não está configurado. Armazenamento indisponível." });
+      if (user.role !== "platform_owner") {
+        const isOwner = String(take.voiceActorId || "") === String(user.id || "");
+        if (!isOwner) {
+          const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
+          if (!roles.includes("studio_admin")) {
+            return res.status(403).json({ message: "Acesso negado" });
+          }
+        }
       }
-
       const filename = filenameFromAudioUrl(take.audioUrl, "take.wav").replace(/[^a-zA-Z0-9_.\-]/g, "_");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.setHeader("Cache-Control", "private, max-age=3600");
 
-      const audioSource = parseSupabaseStorageUrl(take.audioUrl)
-        ? { bucket: parseSupabaseStorageUrl(take.audioUrl)!.bucket, path: parseSupabaseStorageUrl(take.audioUrl)!.path }
-        : await findTakeAudioInSupabase(take);
-
-      if (!audioSource) {
-        return res.status(404).json({ message: "Arquivo de áudio não encontrado no Supabase." });
+      const filePath = safeAudioPath(take.audioUrl);
+      if (filePath && fs.existsSync(filePath)) {
+        res.setHeader("Content-Type", "audio/wav");
+        fs.createReadStream(filePath).pipe(res);
+        return;
       }
 
-      await createAudioAuditLog(req, "take.download.supabase_proxy", {
-        takeId: take.id,
-        sessionId: take.sessionId,
-        bucket: audioSource.bucket,
-        objectPath: audioSource.path,
-      });
+      if (isHttpUrl(take.audioUrl)) {
+        const upstream = await fetchAudioResponse(take.audioUrl);
+        const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+        res.setHeader("Content-Type", contentType);
+        const stream = toNodeReadable(upstream.body);
+        if (!stream) return res.status(500).json({ message: "Falha ao obter stream" });
+        stream.pipe(res);
+        return;
+      }
 
-      const upstream = await downloadFromSupabaseStorage(audioSource);
-      const contentType = upstream.headers.get("content-type") || "audio/wav";
-      res.setHeader("Content-Type", contentType);
-
-      const stream = toNodeReadable(upstream.body);
-      if (!stream) return res.status(500).json({ message: "Falha ao obter stream de áudio" });
-      stream.pipe(res);
+      return res.status(404).json({ message: "Arquivo nao encontrado" });
     } catch (err: any) {
-      logger.error("[Takes] Download error:", {
-        takeId: req.params.id,
-        message: err?.message,
-      });
       res.status(500).json({ message: err?.message || "Erro ao baixar take" });
     }
   });
 
-  app.get("/api/takes/:id/download-link", requireAuth, async (req, res) => {
-    res.status(200).json({
-      url: `/api/takes/${req.params.id}/download`,
-      isProxied: true,
-      ttlSeconds: SUPABASE_DOWNLOAD_URL_TTL_SECONDS,
-    });
-  });
-
-  app.get("/api/takes/:id/stream", requireAuth, audioRateLimiter, async (req, res) => {
+  app.get("/api/takes/:id/stream", requireAuth, async (req, res) => {
     try {
       const takeList = await storage.getTakesByIds([req.params.id]);
       if (takeList.length === 0) return res.status(404).json({ message: "Take nao encontrado" });
       const take = takeList[0];
       const user = (req as any).user!;
-      const hasAccess = await canAccessTake(user, take, take.sessionId, take.studioId);
-      if (!hasAccess) return res.status(403).json({ message: "Acesso negado" });
-
-      if (!isSupabaseConfigured()) {
-        return res.status(503).json({ message: "Supabase não está configurado." });
+      if (user.role !== "platform_owner") {
+        const isOwner = String(take.voiceActorId || "") === String(user.id || "");
+        if (!isOwner) {
+          const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
+          if (!roles.includes("studio_admin")) {
+            return res.status(403).json({ message: "Acesso negado" });
+          }
+        }
       }
 
-      if (String(take.audioUrl || "").startsWith("discarded://")) {
-        return res.status(404).json({ message: "Take descartado" });
+      const filePath = safeAudioPath(take.audioUrl);
+      if (filePath && fs.existsSync(filePath)) {
+        sendFileWithRange(req, res, filePath, "audio/wav");
+        return;
       }
 
-      const audioSource = parseSupabaseStorageUrl(take.audioUrl)
-        ? { bucket: parseSupabaseStorageUrl(take.audioUrl)!.bucket, path: parseSupabaseStorageUrl(take.audioUrl)!.path }
-        : await findTakeAudioInSupabase(take);
-
-      if (!audioSource) {
-        return res.status(404).json({ message: "Mídia indisponível no Supabase." });
+      if (isHttpUrl(take.audioUrl)) {
+        const range = String(req.headers.range || "");
+        const upstream = await fetchAudioResponse(take.audioUrl, range);
+        const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+        res.status(upstream.status);
+        res.setHeader("Content-Type", contentType);
+        const contentLength = upstream.headers.get("content-length");
+        if (contentLength) res.setHeader("Content-Length", contentLength);
+        const acceptRanges = upstream.headers.get("accept-ranges");
+        if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+        const contentRange = upstream.headers.get("content-range");
+        if (contentRange) res.setHeader("Content-Range", contentRange);
+        const stream = toNodeReadable(upstream.body);
+        if (!stream) return res.status(500).json({ message: "Falha ao obter stream" });
+        stream.pipe(res);
+        return;
       }
 
-      await createAudioAuditLog(req, "take.stream.supabase_proxy", {
-        takeId: take.id,
-        sessionId: take.sessionId,
-        bucket: audioSource.bucket,
-        objectPath: audioSource.path,
-        range: req.headers.range,
-      });
-
-      const range = String(req.headers.range || "");
-      const upstream = await downloadFromSupabaseStorage(audioSource, { range });
-
-      const contentType = upstream.headers.get("content-type") || "audio/wav";
-      res.status(upstream.status);
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "private, max-age=1800");
-
-      const contentLength = upstream.headers.get("content-length");
-      if (contentLength) res.setHeader("Content-Length", contentLength);
-      const acceptRanges = upstream.headers.get("accept-ranges");
-      if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
-      const contentRange = upstream.headers.get("content-range");
-      if (contentRange) res.setHeader("Content-Range", contentRange);
-
-      const stream = toNodeReadable(upstream.body);
-      if (!stream) throw new Error("Falha ao obter stream de áudio");
-      stream.pipe(res);
+      return res.status(404).json({ message: "Arquivo nao encontrado" });
     } catch (err: any) {
-      logger.error("[Takes] Stream error:", {
-        takeId: req.params.id,
-        message: err?.message,
-      });
       res.status(500).json({ message: err?.message || "Erro ao reproduzir take" });
-    }
-  });
-
-  app.post("/api/takes/:id/discard", requireAuth, async (req, res) => {
-    try {
-      const payload = z.object({ confirm: z.literal(true) }).parse(req.body || {});
-      if (!payload.confirm) return res.status(400).json({ message: "Confirmacao obrigatoria" });
-      const [takeRecord] = await db.select().from(takes).where(eq(takes.id, req.params.id));
-      if (!takeRecord) return res.status(404).json({ message: "Take nao encontrado" });
-      const user = (req as any).user!;
-      const session = await storage.getSession(takeRecord.sessionId);
-      const canManage = session ? await canManageSessionTakes(user, takeRecord.sessionId, session.studioId) : false;
-      if (!canManage) return res.status(403).json({ message: "Acesso negado" });
-      const discardedUrl = String(takeRecord.audioUrl || "").startsWith("discarded://")
-        ? String(takeRecord.audioUrl || "")
-        : `discarded://${takeRecord.audioUrl}`;
-      await db.update(takes)
-        .set({ audioUrl: discardedUrl, isPreferred: false, aiRecommended: false })
-        .where(eq(takes.id, req.params.id));
-      await createAudioAuditLog(req, "take.discarded", {
-        takeId: takeRecord.id,
-        sessionId: takeRecord.sessionId,
-        lineIndex: takeRecord.lineIndex,
-      });
-      res.status(200).json({ ok: true });
-    } catch (err: any) {
-      res.status(400).json({ message: err?.message || "Falha ao descartar take" });
     }
   });
 
@@ -2024,7 +1081,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const takeList = await storage.getTakesByIds(takeIds);
       if (takeList.length === 0) return res.status(404).json({ message: "Takes nao encontrados" });
       const user = (req as any).user!;
-      if (user.role !== "owner") {
+      if (user.role !== "platform_owner") {
         const studioIds: string[] = [];
         const seen: Record<string, true> = {};
         for (const take of takeList as any[]) {
@@ -2036,32 +1093,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         for (const sid of studioIds) {
           const roles = await storage.getUserRolesInStudio(user.id, sid as string);
-          if (!roles.includes("admin")) {
+          if (!roles.includes("studio_admin")) {
             return res.status(403).json({ message: "Acesso negado a takes de outro estudio" });
           }
         }
       }
-      const archiverModule = await import("archiver");
-      const archiver = (archiverModule.default || archiverModule) as any;
+      const archiver = (await import("archiver")).default;
       const archive = archiver("zip", { zlib: { level: 5 } });
       res.setHeader("Content-Disposition", 'attachment; filename="takes_selecionados.zip"');
       res.setHeader("Content-Type", "application/zip");
       archive.pipe(res);
       for (const take of takeList) {
+        const filePath = safeAudioPath(take.audioUrl);
         const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
-        const audioSource = parseSupabaseStorageUrl(take.audioUrl)
-          ? { bucket: parseSupabaseStorageUrl(take.audioUrl)!.bucket, path: parseSupabaseStorageUrl(take.audioUrl)!.path }
-          : await findTakeAudioInSupabase(take);
-
-        if (audioSource) {
+        if (filePath && fs.existsSync(filePath)) {
+          archive.file(filePath, { name: filename });
+          continue;
+        }
+        if (isHttpUrl(take.audioUrl)) {
           try {
-            const upstream = await downloadFromSupabaseStorage(audioSource);
+            const upstream = await fetchAudioResponse(take.audioUrl);
             const stream = toNodeReadable(upstream.body);
-            if (stream) {
-              archive.append(stream, { name: filename });
-            }
+            if (!stream) throw new Error("Empty body");
+            archive.append(stream, { name: filename });
           } catch (e: any) {
-            logger.warn("[Takes Bulk Download] Skip file due to error", { takeId: take.id, message: e?.message });
+            logger.warn("[Takes Bulk Download] Skip remote file", { takeId: take.id, message: e?.message });
           }
         }
       }
@@ -2077,34 +1133,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const takeList = await storage.getSessionTakesWithDetails(req.params.sessionId);
       if (takeList.length === 0) return res.status(404).json({ message: "Nenhum take nesta sessao" });
       const user = (req as any).user!;
-      if (user.role !== "owner") {
+      if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, takeList[0].studioId);
-        if (!roles.includes("admin")) {
+        if (!roles.includes("studio_admin")) {
           return res.status(403).json({ message: "Acesso negado" });
         }
       }
-      const archiverModule = await import("archiver");
-      const archiver = (archiverModule.default || archiverModule) as any;
+      const archiver = (await import("archiver")).default;
       const archive = archiver("zip", { zlib: { level: 5 } });
       const sessionName = (takeList[0].sessionTitle || "Sessao").replace(/[^a-zA-Z0-9_\-]/g, "_");
       res.setHeader("Content-Disposition", `attachment; filename="${sessionName}.zip"`);
       res.setHeader("Content-Type", "application/zip");
       archive.pipe(res);
       for (const take of takeList) {
+        const filePath = safeAudioPath(take.audioUrl);
         const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
-        const audioSource = parseSupabaseStorageUrl(take.audioUrl)
-          ? { bucket: parseSupabaseStorageUrl(take.audioUrl)!.bucket, path: parseSupabaseStorageUrl(take.audioUrl)!.path }
-          : await findTakeAudioInSupabase(take);
-
-        if (audioSource) {
+        if (filePath && fs.existsSync(filePath)) {
+          archive.file(filePath, { name: filename });
+          continue;
+        }
+        if (isHttpUrl(take.audioUrl)) {
           try {
-            const upstream = await downloadFromSupabaseStorage(audioSource);
+            const upstream = await fetchAudioResponse(take.audioUrl);
             const stream = toNodeReadable(upstream.body);
-            if (stream) {
-              archive.append(stream, { name: filename });
-            }
+            if (!stream) throw new Error("Empty body");
+            archive.append(stream, { name: filename });
           } catch (e: any) {
-            logger.warn("[Session Download] Skip file due to error", { takeId: take.id, message: e?.message });
+            logger.warn("[Session Download] Skip remote file", { takeId: take.id, message: e?.message });
           }
         }
       }
@@ -2120,35 +1175,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const takeList = await storage.getProductionTakesWithDetails(req.params.productionId);
       if (takeList.length === 0) return res.status(404).json({ message: "Nenhum take nesta producao" });
       const user = (req as any).user!;
-      if (user.role !== "owner") {
+      if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, takeList[0].studioId);
-        if (!roles.includes("admin")) {
+        if (!roles.includes("studio_admin")) {
           return res.status(403).json({ message: "Acesso negado" });
         }
       }
-      const archiverModule = await import("archiver");
-      const archiver = (archiverModule.default || archiverModule) as any;
+      const archiver = (await import("archiver")).default;
       const archive = archiver("zip", { zlib: { level: 5 } });
       const prodName = (takeList[0].productionName || "Producao").replace(/[^a-zA-Z0-9_\-]/g, "_");
       res.setHeader("Content-Disposition", `attachment; filename="${prodName}.zip"`);
       res.setHeader("Content-Type", "application/zip");
       archive.pipe(res);
       for (const take of takeList) {
+        const filePath = safeAudioPath(take.audioUrl);
         const filename = filenameFromAudioUrl(take.audioUrl, `take_${take.id}.wav`).replace(/[^a-zA-Z0-9_.\-]/g, "_");
         const sessionFolder = (take.sessionTitle || "Sessao").replace(/[^a-zA-Z0-9_\-]/g, "_");
-        const audioSource = parseSupabaseStorageUrl(take.audioUrl)
-          ? { bucket: parseSupabaseStorageUrl(take.audioUrl)!.bucket, path: parseSupabaseStorageUrl(take.audioUrl)!.path }
-          : await findTakeAudioInSupabase(take);
-
-        if (audioSource) {
+        if (filePath && fs.existsSync(filePath)) {
+          archive.file(filePath, { name: `${sessionFolder}/${filename}` });
+          continue;
+        }
+        if (isHttpUrl(take.audioUrl)) {
           try {
-            const upstream = await downloadFromSupabaseStorage(audioSource);
+            const upstream = await fetchAudioResponse(take.audioUrl);
             const stream = toNodeReadable(upstream.body);
-            if (stream) {
-              archive.append(stream, { name: `${sessionFolder}/${filename}` });
-            }
+            if (!stream) throw new Error("Empty body");
+            archive.append(stream, { name: `${sessionFolder}/${filename}` });
           } catch (e: any) {
-            logger.warn("[Production Download] Skip file due to error", { takeId: take.id, message: e?.message });
+            logger.warn("[Production Download] Skip remote file", { takeId: take.id, message: e?.message });
           }
         }
       }
@@ -2164,7 +1218,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const production = await storage.getProduction(req.params.id);
       if (!production) return res.status(404).json({ message: "Producao nao encontrada" });
       const user = (req as any).user!;
-      if (user.role !== "owner") {
+      if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, production.studioId);
         if (!roles || roles.length === 0) {
           return res.status(403).json({ message: "Acesso negado" });
@@ -2185,8 +1239,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           scriptData = parsed.lines || (Array.isArray(parsed) ? parsed : []);
         } catch { scriptData = []; }
       }
-      const archiverModule = await import("archiver");
-      const archiver = (archiverModule.default || archiverModule) as any;
+      const archiver = (await import("archiver")).default;
       const archive = archiver("zip", { zlib: { level: 5 } });
       const safeName = production.name.replace(/[^a-zA-Z0-9_\-]/g, "_");
       res.setHeader("Content-Disposition", `attachment; filename="${safeName}_exportacao.zip"`);
@@ -2201,80 +1254,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // PDF → Script lines parser
-  const pdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-  app.post("/api/productions/:productionId/parse-pdf", requireAuth, pdfUpload.single("file"), async (req: any, res) => {
-    try {
-      if (!req.file) return res.status(400).json({ message: "Nenhum arquivo enviado" });
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfParse: (buf: Buffer) => Promise<any> = require("pdf-parse");
-      const data = await pdfParse(req.file.buffer);
-      const rawText: string = data.text || "";
-
-      // Split into non-empty lines and try to detect character + dialogue patterns
-      const rawLines = rawText.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
-
-      interface ScriptEntry { character: string; text: string; start: string; notes: string; }
-      const entries: ScriptEntry[] = [];
-      // Matches HH:MM:SS:FF (NDF) or HH:MM:SS;FF (DF) and plain HH:MM:SS
-      const tcPattern = /^(\d{1,2}[:;]\d{2}[:;]\d{2}(?:[;:]\d{2})?)\s+(.*)/;
-      const allCapsPattern = /^([A-ZÁÉÍÓÚÀÃÕÂÊÎÔÛÇ\s\-\.]{2,40})\s*$/;
-
-      let pendingChar = "";
-      let pendingTc = "00:00:00:00";
-
-      for (let i = 0; i < rawLines.length; i++) {
-        const line = rawLines[i];
-        const tcMatch = line.match(tcPattern);
-        if (tcMatch) {
-          // Keep full timecode including frames (HH:MM:SS:FF) for 23.976fps accuracy
-          const rawTc = tcMatch[1].replace(/;(\d{2})$/, ":$1"); // normalise DF semicolons to colon
-          const rest = tcMatch[2].trim();
-          // rest might be "CHARACTER dialogue" or just dialogue
-          const parts = rest.split(/\s{2,}/);
-          if (parts.length >= 2 && allCapsPattern.test(parts[0])) {
-            entries.push({ character: parts[0].trim(), text: parts.slice(1).join(" ").trim(), start: rawTc, notes: "" });
-          } else {
-            entries.push({ character: pendingChar, text: rest, start: rawTc, notes: "" });
-          }
-          pendingTc = rawTc;
-        } else if (allCapsPattern.test(line) && line.length <= 40) {
-          // Looks like a character name in ALL CAPS
-          pendingChar = line.trim();
-        } else if (pendingChar && line.length > 0) {
-          // Dialogue after a character name
-          entries.push({ character: pendingChar, text: line, start: pendingTc, notes: "" });
-          pendingChar = "";
-        } else if (entries.length > 0) {
-          // Continuation of previous dialogue
-          const last = entries[entries.length - 1];
-          if (last && last.text && !allCapsPattern.test(line)) {
-            last.text += " " + line;
-          }
-        }
-      }
-
-      // Fallback: if no entries detected, return each paragraph as a line
-      if (entries.length === 0) {
-        rawLines.forEach((l: string) => {
-          if (l.length > 0) entries.push({ character: "", text: l, start: "00:00:00", notes: "" });
-        });
-      }
-
-      res.json({ lines: entries, pageCount: data.numpages, rawLineCount: rawLines.length });
-    } catch (err: any) {
-      logger.error("[PDF parse] error", { message: err?.message });
-      res.status(500).json({ message: err?.message || "Erro ao processar PDF" });
-    }
-  });
-
   // STAFF
   app.get("/api/studios/:studioId/staff", requireAuth, requireStudioAccess, async (req, res) => {
     const staffList = await storage.getStaff(req.params.studioId);
     res.status(200).json(staffList);
   });
 
-  app.post("/api/studios/:studioId/staff", requireAuth, requireStudioRole("admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/staff", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
     try {
       const newStaff = await storage.createStaff({ ...req.body, studioId: req.params.studioId });
       res.status(201).json(newStaff);
@@ -2301,119 +1287,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(logs);
   });
 
-  app.get("/api/admin/auth-sessions", requireAuth, requireAdmin, async (_req, res) => {
-    const now = new Date();
-    const rows = await db.select().from(httpSessions);
-    const mapped = rows.map((row: any) => ({
-      sid: row.sid,
-      userId: sessionUserIdFromPayload(row.sess),
-      expire: row.expire,
-      isExpired: new Date(row.expire).getTime() < now.getTime(),
-    }));
-    const userIds = Array.from(new Set(mapped.map((r: any) => r.userId).filter(Boolean))) as string[];
-    const usersById = new Map<string, any>();
-    for (const userId of userIds) {
-      const user = await getUserById(userId);
-      if (user) usersById.set(userId, user);
-    }
-    res.status(200).json(
-      mapped.map((item: any) => ({
-        ...item,
-        userEmail: item.userId ? usersById.get(item.userId)?.email || null : null,
-        userDisplayName: item.userId ? usersById.get(item.userId)?.displayName || usersById.get(item.userId)?.fullName || null : null,
-      }))
-    );
-  });
-
-  app.get("/api/admin/auth-sessions/users", requireAuth, requireAdmin, async (_req, res) => {
-    const rows = await db.select().from(httpSessions);
-    const aggregate = new Map<string, { userId: string; sessions: number; latestExpire: Date }>();
-    for (const row of rows as any[]) {
-      const userId = sessionUserIdFromPayload(row.sess);
-      if (!userId) continue;
-      const current = aggregate.get(userId);
-      if (!current) {
-        aggregate.set(userId, { userId, sessions: 1, latestExpire: new Date(row.expire) });
-      } else {
-        current.sessions += 1;
-        if (new Date(row.expire).getTime() > current.latestExpire.getTime()) {
-          current.latestExpire = new Date(row.expire);
-        }
-      }
-    }
-    const userIds = Array.from(aggregate.keys());
-    const usersById = new Map<string, any>();
-    for (const userId of userIds) {
-      const user = await getUserById(userId);
-      if (user) usersById.set(userId, user);
-    }
-    res.status(200).json(
-      userIds.map((userId) => {
-        const item = aggregate.get(userId)!;
-        const user = usersById.get(userId);
-        return {
-          userId,
-          userEmail: user?.email || null,
-          userDisplayName: user?.displayName || user?.fullName || null,
-          sessions: item.sessions,
-          latestExpire: item.latestExpire,
-        };
-      })
-    );
-  });
-
-  app.post("/api/admin/auth-sessions/cleanup-expired", requireAuth, requireAdmin, async (req, res) => {
-    const now = new Date();
-    const expired = await db.select({ sid: httpSessions.sid }).from(httpSessions).where(lt(httpSessions.expire, now));
-    const expiredSids = expired.map((row: any) => row.sid);
-    for (const sid of expiredSids) {
-      await db.delete(httpSessions).where(eq(httpSessions.sid, sid));
-    }
-    await logAdminAction(req, "CLEANUP_EXPIRED_HTTP_SESSIONS", `Removeu ${expiredSids.length} sessoes expiradas`);
-    res.status(200).json({ removed: expiredSids.length });
-  });
-
-  app.delete("/api/admin/auth-sessions/:sid", requireAuth, requireAdmin, async (req, res) => {
-    await db.delete(httpSessions).where(eq(httpSessions.sid, req.params.sid));
-    await logAdminAction(req, "DELETE_HTTP_SESSION", `Encerrou sessao ${req.params.sid}`);
-    res.status(200).json({ ok: true });
-  });
-
-  app.post("/api/admin/auth-sessions/force-logout-user/:userId", requireAuth, requireAdmin, async (req, res) => {
-    const rows = await db.select().from(httpSessions);
-    const toDelete = (rows as any[])
-      .filter((row) => sessionUserIdFromPayload(row.sess) === req.params.userId)
-      .map((row) => row.sid);
-    for (const sid of toDelete) {
-      await db.delete(httpSessions).where(eq(httpSessions.sid, sid));
-    }
-    await logAdminAction(req, "FORCE_LOGOUT_USER", `Encerrou ${toDelete.length} sessoes de ${req.params.userId}`);
-    res.status(200).json({ removed: toDelete.length });
-  });
-
   // ADMIN USERS
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await storage.getAllUsers();
     res.status(200).json(allUsers);
-  });
-
-  app.get("/api/admin/users/export", requireAuth, requireAdmin, async (_req, res) => {
-    const allUsers = await storage.getAllUsers();
-    const headers = ["id", "email", "displayName", "role", "status", "createdAt"];
-    const rows = allUsers.map((u: any) =>
-      [u.id, u.email || "", u.displayName || u.fullName || "", u.role || "", u.status || "", u.createdAt ? new Date(u.createdAt).toISOString() : ""]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(",")
-    );
-    const csv = [headers.join(","), ...rows].join("\n");
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="usuarios_${Date.now()}.csv"`);
-    res.status(200).send(csv);
-  });
-
-  app.get("/api/admin/users/:id/activity", requireAuth, requireAdmin, async (req, res) => {
-    const logs = await storage.getAuditLogs(req.params.id);
-    res.status(200).json(logs);
   });
 
   app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
@@ -2463,13 +1340,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const existingMembership = existingMemberships.find(m => m.studioId === studioId);
         let membershipId: string;
         if (existingMembership) {
-          await storage.updateMembershipStatus(existingMembership.id, "approved", studioRoles?.[0] || "dubber");
+          await storage.updateMembershipStatus(existingMembership.id, "approved", studioRoles?.[0] || "dublador");
           membershipId = existingMembership.id;
         } else {
           const newMembership = await storage.createMembership({
             userId: req.params.id,
             studioId,
-            role: studioRoles?.[0] || "dubber",
+            role: studioRoles?.[0] || "dublador",
             status: "approved",
           });
           membershipId = newMembership.id;
@@ -2506,13 +1383,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/admin/users/:id/change-role", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { role } = z.object({ role: z.string() }).parse(req.body);
-      const target = await getUserById(req.params.id);
-      if (target && isMasterEmail(target.email) && role !== "owner") {
-        return res.status(403).json({ message: "Usuario master nao pode perder privilegio de owner" });
-      }
-      if (role === "owner" && !isMasterEmail((req as any).user?.email)) {
-        return res.status(403).json({ message: "Somente o master admin pode conceder owner" });
-      }
       const user = await storage.updateUser(req.params.id, { role });
       await logAdminAction(req, "CHANGE_ROLE", `Alterou papel do usuario ${req.params.id} para ${role}`);
       res.status(200).json(user);
@@ -2524,10 +1394,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/admin/users/:id/change-status", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { status } = z.object({ status: z.string() }).parse(req.body);
-      const target = await getUserById(req.params.id);
-      if (target && isMasterEmail(target.email) && status !== "approved") {
-        return res.status(403).json({ message: "Usuario master nao pode ser desativado" });
-      }
       const user = await storage.updateUserStatus(req.params.id, status);
       await logAdminAction(req, "CHANGE_STATUS", `Alterou status do usuario ${req.params.id} para ${status}`);
       res.status(200).json(user);
@@ -2552,17 +1418,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.patch("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const target = await getUserById(req.params.id);
-      const patch = { ...(req.body || {}) } as any;
-      if (target && isMasterEmail(target.email)) {
-        delete patch.role;
-        delete patch.status;
-        delete patch.email;
-      }
-      if (patch.role === "owner" && !isMasterEmail((req as any).user?.email)) {
-        return res.status(403).json({ message: "Somente o master admin pode conceder owner" });
-      }
-      const user = await storage.updateUser(req.params.id, patch);
+      const user = await storage.updateUser(req.params.id, req.body);
       await logAdminAction(req, "UPDATE_USER", `Atualizou usuario ${req.params.id}`);
       res.status(200).json(user);
     } catch (err: any) {
@@ -2572,10 +1428,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const target = await getUserById(req.params.id);
-      if (target && isMasterEmail(target.email)) {
-        return res.status(403).json({ message: "Usuario master nao pode ser excluido" });
-      }
       await storage.deleteUser(req.params.id);
       await logAdminAction(req, "DELETE_USER", `Excluiu usuario ${req.params.id}`);
       res.status(200).json({ ok: true });
@@ -2584,133 +1436,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/admin/users/:id/assign-studio", requireAuth, requireAdmin, async (req, res) => {
-    try {
-      const payload = z.object({
-        studioId: z.string().min(1),
-        roles: z.array(z.string()).optional(),
-      }).parse(req.body || {});
-      const existingMemberships = await storage.getMembershipsByUser(req.params.id);
-      const existing = existingMemberships.find((m) => m.studioId === payload.studioId);
-      let membershipId = "";
-      if (existing) {
-        const primaryRole = payload.roles?.[0] || existing.role || "dubber";
-        await storage.updateMembershipStatus(existing.id, "approved", primaryRole);
-        membershipId = existing.id;
-      } else {
-        const primaryRole = payload.roles?.[0] || "dubber";
-        const created = await storage.createMembership({
-          userId: req.params.id,
-          studioId: payload.studioId,
-          role: primaryRole,
-          status: "approved",
-        });
-        membershipId = created.id;
-      }
-      const normalizedRoles = payload.roles?.length ? payload.roles : ["dubber"];
-      await storage.setUserStudioRoles(membershipId, normalizedRoles);
-      await storage.createNotification({
-        userId: req.params.id,
-        type: "membership_approved",
-        title: "Novo estudo liberado",
-        message: "Voce foi alocado em um novo estudo.",
-        isRead: false,
-        relatedId: payload.studioId,
-      });
-      await logAdminAction(req, "ASSIGN_USER_TO_STUDIO", `Atribuiu usuario ${req.params.id} ao estudio ${payload.studioId}`);
-      res.status(200).json({ ok: true });
-    } catch (err: any) {
-      res.status(400).json({ message: err?.message || "Falha ao atribuir usuario ao estudio" });
-    }
-  });
-
-  app.delete("/api/admin/users/:id/studios/:studioId", requireAuth, requireAdmin, async (req, res) => {
-    try {
-      const memberships = await storage.getMembershipsByUser(req.params.id);
-      const target = memberships.find((m) => m.studioId === req.params.studioId);
-      if (!target) return res.status(404).json({ message: "Vinculo nao encontrado" });
-      await db.delete(userStudioRoles).where(eq(userStudioRoles.membershipId, target.id));
-      await db.delete(studioMemberships).where(eq(studioMemberships.id, target.id));
-      await logAdminAction(req, "UNASSIGN_USER_FROM_STUDIO", `Desvinculou usuario ${req.params.id} do estudio ${req.params.studioId}`);
-      res.status(200).json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Falha ao desvincular usuario do estudio" });
-    }
-  });
-
   // ADMIN STUDIOS
   app.get("/api/admin/studios", requireAuth, requireAdmin, async (req, res) => {
     const allStudios = await storage.getStudios();
     res.status(200).json(allStudios);
-  });
-
-  app.get("/api/admin/studios/:id/users", requireAuth, requireAdmin, async (req, res) => {
-    const memberships = await storage.getStudioMemberships(req.params.id);
-    const enriched = await Promise.all(
-      memberships.map(async (membership: any) => {
-        const roles = await storage.getUserStudioRoles(membership.id);
-        return {
-          membershipId: membership.id,
-          userId: membership.userId,
-          status: membership.status,
-          role: membership.role,
-          roles: roles.map((r: any) => r.role),
-          user: membership.user || null,
-          createdAt: membership.createdAt,
-        };
-      })
-    );
-    res.status(200).json(enriched);
-  });
-
-  app.get("/api/admin/studios/:id/management-settings", requireAuth, requireAdmin, async (req, res) => {
-    const studio = await storage.getStudio(req.params.id);
-    if (!studio) {
-      return res.status(404).json({ message: "Estudio nao encontrado" });
-    }
-    const profile = await storage.getStudioProfile(req.params.id);
-    const defaults = {
-      maxVoiceActors: 1,
-      maxDirectors: 1,
-      totalSessionsAvailable: 1,
-      simultaneousProductionsLimit: 1,
-      maxDirectorsPerSession: 1,
-      maxDubbersStudentsPerSession: 1,
-    };
-    const settings = {
-      ...defaults,
-      ...(profile?.studioManagementConfig || {}),
-    };
-    return res.status(200).json({
-      studio: {
-        id: studio.id,
-        name: studio.name,
-        slug: studio.slug,
-      },
-      settings,
-    });
-  });
-
-  app.put("/api/admin/studios/:id/management-settings", requireAuth, requireAdmin, async (req, res) => {
-    try {
-      const payload = z.object({
-        maxVoiceActors: z.number().int().positive(),
-        maxDirectors: z.number().int().positive(),
-        totalSessionsAvailable: z.number().int().positive(),
-        simultaneousProductionsLimit: z.number().int().positive(),
-        maxDirectorsPerSession: z.number().int().positive(),
-        maxDubbersStudentsPerSession: z.number().int().positive(),
-      }).parse(req.body || {});
-      const studio = await storage.getStudio(req.params.id);
-      if (!studio) {
-        return res.status(404).json({ message: "Estudio nao encontrado" });
-      }
-      await storage.upsertStudioProfile(req.params.id, { studioManagementConfig: payload });
-      await logAdminAction(req, "UPDATE_STUDIO_MANAGEMENT_SETTINGS", `Atualizou configuracoes de gestao do estudio ${req.params.id}`);
-      return res.status(200).json(payload);
-    } catch (err: any) {
-      return res.status(400).json({ message: err?.errors?.[0]?.message || err?.message || "Dados invalidos para configuracoes do estudio" });
-    }
   });
 
   app.patch("/api/admin/studios/:id", requireAuth, requireAdmin, async (req, res) => {
@@ -2726,30 +1455,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/admin/studios/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const studio = await storage.getStudio(req.params.id);
-      if (!studio) return res.status(404).json({ message: "Estudio nao encontrado" });
-
-      // Limpeza profunda manual para garantir integridade
-      const prodRows = await db.select({ id: productions.id }).from(productions).where(eq(productions.studioId, req.params.id));
-      const prodIds = prodRows.map(p => p.id);
-      
-      if (prodIds.length > 0) {
-        const sessRows = await db.select({ id: sessions.id }).from(sessions).where(inArray(sessions.productionId, prodIds));
-        const sessIds = sessRows.map(s => s.id);
-        
-        if (sessIds.length > 0) {
-          await db.delete(takes).where(inArray(takes.sessionId, sessIds));
-          await db.delete(sessionParticipants).where(inArray(sessionParticipants.sessionId, sessIds));
-          await db.delete(sessions).where(inArray(sessions.id, sessIds));
-        }
-        await db.delete(characters).where(inArray(characters.productionId, prodIds));
-        await db.delete(productions).where(inArray(productions.id, prodIds));
-      }
-
-      await db.delete(userStudioRoles).where(inArray(userStudioRoles.membershipId, 
-        db.select({ id: studioMemberships.id }).from(studioMemberships).where(eq(studioMemberships.studioId, req.params.id))
-      ));
-      await db.delete(studioMemberships).where(eq(studioMemberships.studioId, req.params.id));
-      
       await storage.deleteStudio(req.params.id);
       await logAdminAction(req, "DELETE_STUDIO", `Excluiu estudio ${studio?.name}`);
       res.status(200).json({ ok: true });
@@ -2766,17 +1471,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/admin/productions/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
-      // Remover dependências manuais
-      const sessionRows = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.productionId, req.params.id));
-      const sessionIds = sessionRows.map(s => s.id);
-      
-      if (sessionIds.length > 0) {
-        await db.delete(takes).where(inArray(takes.sessionId, sessionIds));
-        await db.delete(sessionParticipants).where(inArray(sessionParticipants.sessionId, sessionIds));
-        await db.delete(sessions).where(eq(sessions.productionId, req.params.id));
-      }
-      
-      await db.delete(characters).where(eq(characters.productionId, req.params.id));
       await storage.deleteProduction(req.params.id);
       await logAdminAction(req, "DELETE_PRODUCTION", `Excluiu producao ${req.params.id}`);
       res.status(200).json({ ok: true });
@@ -2787,8 +1481,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.patch("/api/admin/productions/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = req.body || {};
-      const [updated] = await db.update(productions).set({ ...rest, updatedAt: new Date() }).where(eq(productions.id, req.params.id)).returning();
+      const [updated] = await db.update(productions).set(req.body).where(eq(productions.id, req.params.id)).returning();
       await logAdminAction(req, "UPDATE_PRODUCTION", `Atualizou producao ${req.params.id}`);
       res.status(200).json(updated);
     } catch (err: any) {
@@ -2814,40 +1507,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(allSessions);
   });
 
-  app.get("/api/admin/sessions/active-by-user", requireAuth, requireAdmin, async (_req, res) => {
-    const allSessions = await storage.getAllSessions();
-    const activeSessions = allSessions.filter((session: any) => session.status === "active" || session.status === "in_progress");
-    const aggregate = new Map<string, { userId: string; sessions: any[] }>();
-    for (const session of activeSessions as any[]) {
-      const participants = await storage.getSessionParticipants(session.id);
-      for (const participant of participants as any[]) {
-        if (!aggregate.has(participant.userId)) {
-          aggregate.set(participant.userId, { userId: participant.userId, sessions: [] });
-        }
-        aggregate.get(participant.userId)!.sessions.push({
-          id: session.id,
-          title: session.title,
-          status: session.status,
-          scheduledAt: session.scheduledAt,
-        });
-      }
-    }
-    const userIds = Array.from(aggregate.keys());
-    const usersById = new Map<string, any>();
-    for (const userId of userIds) {
-      const user = await getUserById(userId);
-      if (user) usersById.set(userId, user);
-    }
-    res.status(200).json(
-      userIds.map((userId) => ({
-        userId,
-        userEmail: usersById.get(userId)?.email || null,
-        userDisplayName: usersById.get(userId)?.displayName || usersById.get(userId)?.fullName || null,
-        sessions: aggregate.get(userId)!.sessions,
-      }))
-    );
-  });
-
   app.patch("/api/admin/sessions/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const updated = await storage.updateSession(req.params.id, req.body);
@@ -2860,50 +1519,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/admin/sessions/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const participants = await storage.getSessionParticipants(req.params.id);
-      const participantIds = Array.from(new Set((participants as any[]).map((p) => String(p.userId))));
-      
-      // Primeiro remover dependências manuais que podem não estar cobertas por CASCADE ou que precisam de limpeza especial
-      await db.delete(takes).where(eq(takes.sessionId, req.params.id));
-      await db.delete(sessionParticipants).where(eq(sessionParticipants.sessionId, req.params.id));
-      
       await storage.deleteSession(req.params.id);
-      const rows = await db.select().from(httpSessions);
-      const toDelete = (rows as any[])
-        .filter((row) => participantIds.includes(String(sessionUserIdFromPayload(row.sess) || "")))
-        .map((row) => row.sid);
-      for (const sid of toDelete) {
-        await db.delete(httpSessions).where(eq(httpSessions.sid, sid));
-      }
       await logAdminAction(req, "DELETE_SESSION", `Excluiu sessao ${req.params.id}`);
-      res.status(200).json({ ok: true, forcedLogouts: toDelete.length });
+      res.status(200).json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Falha ao excluir sessao" });
-    }
-  });
-
-  app.post("/api/admin/sessions/cleanup-expired", requireAuth, requireAdmin, async (req, res) => {
-    try {
-      const allSessions = await storage.getAllSessions();
-      const now = Date.now();
-      let deleted = 0;
-      let completed = 0;
-      for (const session of allSessions as any[]) {
-        const scheduledAt = new Date(session.scheduledAt).getTime();
-        const ageDays = (now - scheduledAt) / (24 * 60 * 60 * 1000);
-        if ((session.status === "scheduled" || session.status === "in_progress") && ageDays > 1) {
-          await storage.updateSession(session.id, { status: "completed" });
-          completed += 1;
-        }
-        if ((session.status === "completed" || session.status === "cancelled") && ageDays > 30) {
-          await storage.deleteSession(session.id);
-          deleted += 1;
-        }
-      }
-      await logAdminAction(req, "CLEANUP_EXPIRED_SESSIONS", `Concluiu ${completed} e removeu ${deleted} sessoes expiradas`);
-      res.status(200).json({ completed, deleted });
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Falha na limpeza de sessoes expiradas" });
     }
   });
 

@@ -39,19 +39,6 @@ const studioSchema = z.object({
   userRoles: z.array(z.string()).optional(),
 });
 
-const studioAutoEntrySchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("redirect"),
-    studioId: z.string(),
-    target: z.string(),
-    count: z.number(),
-  }),
-  z.object({
-    mode: z.literal("select"),
-    count: z.number(),
-  }),
-]);
-
 const productionSchema = z.object({
   id: z.string(),
   studioId: z.string(),
@@ -105,14 +92,6 @@ export const api = {
       path: '/api/studios' as const,
       responses: {
         200: z.array(studioSchema),
-      }
-    },
-    autoEntry: {
-      method: 'GET' as const,
-      path: '/api/studios/auto-entry' as const,
-      responses: {
-        200: studioAutoEntrySchema,
-        404: errorSchemas.notFound,
       }
     },
     get: {

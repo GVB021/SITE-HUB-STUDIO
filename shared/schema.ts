@@ -46,9 +46,6 @@ export const studios = pgTable("studios", {
   photoUrl: text("photo_url"),
   isActive: boolean("is_active").default(true),
   ownerId: varchar("owner_id").notNull().references(() => users.id),
-  planTier: text("plan_tier").default("basic"),
-  planStatus: text("plan_status").default("active"),
-  billingContactEmail: text("billing_contact_email"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -81,7 +78,6 @@ export const studioMemberships = pgTable("studio_memberships", {
   return {
     userIdIdx: index("studio_memberships_user_id_idx").on(table.userId),
     studioIdIdx: index("studio_memberships_studio_id_idx").on(table.studioId),
-    uniqueStudioUser: uniqueIndex("studio_memberships_studio_user_idx").on(table.studioId, table.userId),
   };
 });
 
@@ -179,7 +175,6 @@ export const takes = pgTable("takes", {
   isPreferred: boolean("is_preferred").default(false),
   qualityScore: real("quality_score"),
   aiRecommended: boolean("ai_recommended").default(false),
-  voiceActorName: varchar("voice_actor_name"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -192,14 +187,12 @@ export const takes = pgTable("takes", {
 export const auditLog = pgTable("audit_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
-  actingUserId: varchar("acting_user_id").references(() => users.id),
   action: text("action").notNull(),
   details: text("details"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
     userIdIdx: index("audit_log_user_id_idx").on(table.userId),
-    actingUserIdIdx: index("audit_log_acting_user_id_idx").on(table.actingUserId),
   };
 });
 

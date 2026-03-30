@@ -167,8 +167,8 @@ function TakeRow({
             {filename}
           </span>
           {take.isPreferred && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500/40 text-blue-400 bg-blue-500/10">
-              <Star className="h-2.5 w-2.5 mr-0.5 fill-blue-400" /> Preferido
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400 bg-amber-500/10">
+              <Star className="h-2.5 w-2.5 mr-0.5 fill-amber-400" /> Preferido
             </Badge>
           )}
           {take.aiRecommended && (
@@ -374,7 +374,7 @@ function SessionGroup({
                         href={t.outputUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-xs underline underline-offset-2 text-blue-400 shrink-0"
+                        className="text-xs underline underline-offset-2 text-amber-400 shrink-0"
                         data-testid={`link-download-track-${t.filename}`}
                       >
                         Download
@@ -531,10 +531,9 @@ const Takes = memo(function Takes({ studioId }: { studioId: string }) {
   const { user } = useAuth();
   const { hasMinRole } = useStudioRole(studioId);
   const { toast } = useToast();
-  const isOwner = user?.role === "owner";
-  const isPlatformOwner = user?.role === "owner";
-  const canManageAudio = hasMinRole("director");
-  const hasAccess = isOwner || canManageAudio;
+  const isPlatformOwner = user?.role === "platform_owner";
+  const canManageAudio = hasMinRole("engenheiro_audio");
+  const hasAccess = isPlatformOwner || canManageAudio;
 
   const { data: takesRaw, isLoading } = useQuery<TakeDetail[]>({
     queryKey: ["/api/studios", studioId, "takes", "grouped"],

@@ -5,9 +5,6 @@ import { isAuthenticated, hashPassword } from "./replitAuth";
 import { authStorage } from "./storage";
 import { storage } from "../../storage";
 import { logger } from "../../lib/logger";
-import { normalizeEmail, onlyDigits, parseBirthDate, validateSimplifiedRegisterInput } from "@shared/register-validation";
-import { normalizePlatformRole } from "@shared/roles";
-import { decideStudioAutoEntry } from "../../lib/studio-auto-entry";
 
 const loginSchema = z.object({
   email: z.string().email("Email invalido"),
@@ -15,13 +12,24 @@ const loginSchema = z.object({
 });
 
 const registerSchema = z.object({
-  email: z.string(),
-  password: z.string(),
-  fullName: z.string(),
-  studioId: z.string(),
-  whatsapp: z.string(),
-  birthDate: z.string(),
-}).strict();
+  email: z.string().email("Email invalido"),
+  password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
+  fullName: z.string().min(2, "Nome obrigatorio"),
+  studioId: z.string().optional().default(""),
+  artistName: z.string().optional(),
+  phone: z.string().optional(),
+  altPhone: z.string().optional(),
+  birthDate: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  mainLanguage: z.string().optional(),
+  additionalLanguages: z.string().optional(),
+  experience: z.string().optional(),
+  specialty: z.string().optional(),
+  bio: z.string().optional(),
+  portfolioUrl: z.string().optional(),
+}).passthrough();
 
 function buildComplementaryProfile(input: any) {
   const keys = [
@@ -64,13 +72,13 @@ async function seedPlatformOwner() {
         fullName: "Gabriel Borba",
         displayName: "Gabriel Borba",
         artistName: "Master Admin",
-        role: "owner",
+        role: "platform_owner",
         status: "approved",
       });
       logger.info("Platform owner account created: borbaggabriel@gmail.com");
     } else {
-      if (existing.role !== "owner") {
-        await authStorage.updateUserRole(existing.id, "owner");
+      if (existing.role !== "platform_owner") {
+        await authStorage.updateUserRole(existing.id, "platform_owner");
       }
       if (existing.status !== "approved") {
         await authStorage.updateUserStatus(existing.id, "approved");
@@ -102,58 +110,17 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(401).json({ message: info?.message || "Email ou senha incorretos" });
       }
 
-      if (user.status === "pending" && user.role !== "owner") {
+      if (user.status === "pending" && user.role !== "platform_owner") {
         return res.status(403).json({ message: "pending", status: "pending" });
       }
       if (user.status === "rejected") {
         return res.status(403).json({ message: "Sua conta foi rejeitada pelo administrador." });
       }
 
-      req.login(user, async (loginErr) => {
+      req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
         const { passwordHash, ...safeUser } = user;
-        let redirectTo = "/hub-dub/studios";
-        let studioCount = 0;
-        let autoEntryMode: "redirect" | "select" = "select";
-
-        try {
-          const baseStudios = normalizePlatformRole(user.role) === "owner"
-            ? await storage.getStudios()
-            : await storage.getStudiosForUser(user.id);
-          studioCount = baseStudios.length;
-          if (studioCount === 0) {
-            logger.error("User without studios during login", { userId: user.id, role: user.role });
-            return res.status(409).json({ message: "Nenhum estúdio vinculado ao usuário." });
-          }
-          const decision = decideStudioAutoEntry(baseStudios);
-          if (decision.mode === "error") {
-            logger.error("Invalid auto-entry decision during login", {
-              userId: user.id,
-              studioCount,
-              message: decision.message,
-            });
-            return res.status(500).json({ message: "Falha ao resolver estúdio único para redirecionamento." });
-          }
-          if (decision.mode === "redirect") {
-            redirectTo = `/hub-dub/studio/${decision.studioId}/dashboard`;
-            autoEntryMode = "redirect";
-          } else {
-            autoEntryMode = "select";
-          }
-        } catch (redirectErr) {
-          logger.error("Error resolving login redirect", {
-            userId: user?.id,
-            error: String(redirectErr),
-          });
-          return res.status(500).json({ message: "Falha ao resolver redirecionamento de login." });
-        }
-
-        return res.json({
-          user: safeUser,
-          redirectTo,
-          studioCount,
-          autoEntryMode,
-        });
+        return res.json({ user: safeUser });
       });
     })(req, res, next);
   });
@@ -168,74 +135,32 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/auth/request-password-reset", async (req, res) => {
-    try {
-      const { email } = z.object({ email: z.string().email() }).parse(req.body || {});
-      const safeEmail = email.toLowerCase().trim();
-
-      try {
-        const allUsers = await storage.getAllUsers();
-        const owners = allUsers.filter((u: any) => u.role === "owner");
-        for (const owner of owners) {
-          await storage.createNotification({
-            userId: owner.id,
-            type: "password_reset_request",
-            title: "Solicitação de recuperação de senha",
-            message: `Solicitação recebida para: ${safeEmail}`,
-            relatedId: safeEmail,
-          });
-        }
-      } catch (notifyErr) {
-        logger.error("Error creating password reset request notifications", { error: String(notifyErr) });
-      }
-
-      return res.status(200).json({ ok: true });
-    } catch {
-      return res.status(200).json({ ok: true });
-    }
-  });
-
   app.post("/api/auth/register", async (req, res) => {
     try {
       const data = registerSchema.parse(req.body);
-      const validationErrors = validateSimplifiedRegisterInput({
-        email: data.email,
-        fullName: data.fullName,
-        password: data.password,
-        studioId: data.studioId,
-        whatsapp: data.whatsapp,
-        birthDate: data.birthDate,
-      });
-      if (Object.keys(validationErrors).length > 0) {
-        return res.status(400).json({ message: Object.values(validationErrors)[0], errors: validationErrors });
-      }
-
-      const safeEmail = normalizeEmail(data.email);
-      const existing = await authStorage.getUserByEmail(safeEmail);
+      const existing = await authStorage.getUserByEmail(data.email);
       if (existing) {
         return res.status(409).json({ message: "Este email ja esta em uso" });
       }
 
       const studioId = String(data.studioId || "").trim();
-      const studio = await storage.getStudio(studioId);
-      if (!studio || !studio.isActive) {
-        return res.status(400).json({ message: "Estudio selecionado nao encontrado" });
-      }
-
-      const birthDateParsed = parseBirthDate(data.birthDate);
-      if (!birthDateParsed) {
-        return res.status(400).json({ message: "Data de nascimento invalida" });
+      let studio: any = null;
+      if (studioId) {
+        studio = await storage.getStudio(studioId);
+        if (!studio) {
+          return res.status(400).json({ message: "Estudio selecionado nao encontrado" });
+        }
       }
 
       const user = await authStorage.createUser({
-        email: safeEmail,
+        email: data.email.toLowerCase().trim(),
         passwordHash: hashPassword(data.password),
-        fullName: data.fullName.trim(),
-        displayName: data.fullName.trim(),
+        fullName: data.fullName,
+        displayName: data.fullName,
         artistName: null,
-        phone: onlyDigits(data.whatsapp),
+        phone: null,
         altPhone: null,
-        birthDate: data.birthDate,
+        birthDate: null,
         city: null,
         state: null,
         country: null,
@@ -245,15 +170,11 @@ export function registerAuthRoutes(app: Express): void {
         specialty: null,
         bio: null,
         portfolioUrl: null,
-        status: "approved",
+        status: "pending",
         role: "user",
       });
 
-      const complementary = buildComplementaryProfile({
-        ...data,
-        phone: onlyDigits(data.whatsapp),
-        birthDate: birthDateParsed.toISOString().slice(0, 10),
-      });
+      const complementary = buildComplementaryProfile(data);
       if (Object.keys(complementary).length > 0) {
         try {
           await storage.upsertUserProfile(user.id, complementary);
@@ -262,27 +183,35 @@ export function registerAuthRoutes(app: Express): void {
         }
       }
 
-      const membership = await storage.createMembership({
-        userId: user.id,
-        studioId,
-        role: "dubber",
-        status: "approved",
-      });
-
-      logger.info("New user registered (approved)", { email: safeEmail, id: user.id, studioId });
-      req.login(user, (loginErr) => {
-        if (loginErr) {
-          logger.error("Register auto-login error", { error: String(loginErr), userId: user.id });
-          return res.status(500).json({ message: "Conta criada, mas falha ao autenticar" });
-        }
-        const { passwordHash, ...safeUser } = user;
-        return res.status(201).json({
-          user: safeUser,
+      if (studioId) {
+        await storage.createMembership({
+          userId: user.id,
           studioId,
-          membershipId: membership.id,
-          redirectTo: `/hub-dub/studio/${studioId}/dashboard`,
+          role: "pending",
+          status: "pending",
         });
-      });
+      }
+
+      try {
+        if (studioId && studio) {
+          const studioAdmins = await storage.getStudioAdmins(studioId);
+          for (const admin of studioAdmins) {
+            await storage.createNotification({
+              userId: admin.id,
+              type: "member_request",
+              title: "Novo cadastro pendente",
+              message: `${data.fullName} (${data.email}) solicitou acesso ao estudio ${studio.name}.`,
+              relatedId: user.id,
+            });
+          }
+        }
+      } catch (notifErr) {
+        logger.error("Error sending notifications to studio admins", { error: String(notifErr) });
+      }
+
+      logger.info("New user registered (pending)", { email: data.email, id: user.id, studioId: studioId || null });
+      const { passwordHash, ...safeUser } = user;
+      return res.status(201).json({ user: safeUser });
     } catch (err: any) {
       if (err.errors) {
         return res.status(400).json({ message: err.errors[0]?.message || "Dados invalidos" });

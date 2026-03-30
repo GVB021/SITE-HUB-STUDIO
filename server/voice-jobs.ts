@@ -7,8 +7,6 @@ import fs from "fs";
 import { requireAuth } from "./middleware/auth";
 import { storage } from "./storage";
 
-const MEDIA_PIPELINE_ENABLED = process.env.MEDIA_PIPELINE_ENABLED === "true";
-
 function safeAudioPath(audioUrl: string): string | null {
   const normalized = audioUrl.replace(/^\/+/, "");
   const resolved = path.resolve(process.cwd(), "public", normalized);
@@ -82,21 +80,6 @@ export function registerVoiceJobs(app: Express) {
       };
       fs.writeFileSync(voiceJobStatusPath(jobId), JSON.stringify(initialStatus, null, 2));
 
-      if (!MEDIA_PIPELINE_ENABLED) {
-        // Media pipeline disabled - return error status
-        const disabledStatus = {
-          job_id: jobId,
-          status: "failed",
-          step: "disabled",
-          progress: 1,
-          message: "Media pipeline is disabled",
-          error: "Media pipeline is disabled. Set MEDIA_PIPELINE_ENABLED=true to enable.",
-          outputs: null,
-        };
-        fs.writeFileSync(voiceJobStatusPath(jobId), JSON.stringify(disabledStatus, null, 2));
-        return res.json(disabledStatus);
-      }
-
       const workerScript = path.join(process.cwd(), "services", "media-pipeline", "voice_worker.py");
       const venvPython = path.join(process.cwd(), "services", "media-pipeline", ".venv", "bin", "python");
       const python = process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : "python3");
@@ -157,9 +140,9 @@ export function registerVoiceJobs(app: Express) {
       const take: any = takeList[0];
 
       const user = (req as any).user!;
-      if (user.role !== "owner") {
+      if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
-        const isStudioAdmin = Array.isArray(roles) && roles.includes("admin");
+        const isStudioAdmin = Array.isArray(roles) && roles.includes("studio_admin");
         const isOwner = take.voiceActorId === user.id;
         if (!isStudioAdmin && !isOwner) {
           return res.status(403).json({ message: "Acesso negado" });
@@ -185,21 +168,6 @@ export function registerVoiceJobs(app: Express) {
         outputs: null,
       };
       fs.writeFileSync(voiceJobStatusPath(jobId), JSON.stringify(initialStatus, null, 2));
-
-      if (!MEDIA_PIPELINE_ENABLED) {
-        // Media pipeline disabled - return error status
-        const disabledStatus = {
-          job_id: jobId,
-          status: "failed",
-          step: "disabled",
-          progress: 1,
-          message: "Media pipeline is disabled",
-          error: "Media pipeline is disabled. Set MEDIA_PIPELINE_ENABLED=true to enable.",
-          outputs: null,
-        };
-        fs.writeFileSync(voiceJobStatusPath(jobId), JSON.stringify(disabledStatus, null, 2));
-        return res.json(disabledStatus);
-      }
 
       const workerScript = path.join(process.cwd(), "services", "media-pipeline", "voice_worker.py");
       const venvPython = path.join(process.cwd(), "services", "media-pipeline", ".venv", "bin", "python");

@@ -12,7 +12,7 @@ export default function NotFound() {
         <p className="vhub-page-subtitle !mt-0 mb-8">
           {pt.common.notFoundDesc}
         </p>
-        <Link to="/hub-dub/studios">
+        <Link href="/hub-dub/studios">
           <button className="vhub-btn-md vhub-btn-primary press-effect" data-testid="button-go-home">
             Ir para Estudios
           </button>

@@ -4,8 +4,6 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 
-const MEDIA_PIPELINE_ENABLED = process.env.MEDIA_PIPELINE_ENABLED === "true";
-
 function safeJobId(jobId: string): string | null {
   const cleaned = jobId.replace(/[^a-zA-Z0-9_\-]/g, "");
   if (!cleaned || cleaned.length < 8) return null;
@@ -71,21 +69,6 @@ export function registerMeRestore(app: Express) {
         outputs: null,
       };
       fs.writeFileSync(path.join(restoreDir, "status.json"), JSON.stringify(initialStatus, null, 2));
-
-      if (!MEDIA_PIPELINE_ENABLED) {
-        // Media pipeline disabled - return error status
-        const disabledStatus = {
-          job_id: restoreId,
-          status: "failed",
-          step: "disabled",
-          progress: 1,
-          message: "Media pipeline is disabled",
-          error: "Media pipeline is disabled. Set MEDIA_PIPELINE_ENABLED=true to enable.",
-          outputs: null,
-        };
-        fs.writeFileSync(path.join(restoreDir, "status.json"), JSON.stringify(disabledStatus, null, 2));
-        return res.json(disabledStatus);
-      }
 
       const workerScript = path.join(process.cwd(), "services", "media-pipeline", "me_restore_worker.py");
       const venvPython = path.join(process.cwd(), "services", "media-pipeline", ".venv", "bin", "python");

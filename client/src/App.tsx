@@ -10,6 +10,8 @@ import { Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, type ComponentType } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { initThemeMode } from "@/lib/theme-mode";
+import { ThemeProvider } from "next-themes";
+import { BackButton } from "@/components/nav/BackButton";
 import { RealtimeInvalidation } from "@/components/realtime/RealtimeInvalidation";
 
 const lazyWithRetry = <T extends ComponentType<any>>(importer: () => Promise<{ default: T }>) =>
@@ -34,25 +36,13 @@ const lazyWithRetry = <T extends ComponentType<any>>(importer: () => Promise<{ d
   });
 
 const NotFound = lazyWithRetry(() => import("@/pages/not-found"));
-const Landing = lazyWithRetry(() => import("@/components/presentation/PresentationLanding"));
+const Landing = lazyWithRetry(() => import("@/pages/landing"));
+const HubSchool = lazyWithRetry(() => import("@/pages/hubschool"));
+const HubSchoolCourse = lazyWithRetry(() => import("@/pages/hubschool-course"));
 const HubAlign = lazyWithRetry(() => import("@/pages/hub-align"));
-// Platform Admin Pages
-const PlatformAdminLayout = lazyWithRetry(() => import("@/pages/platform-admin/layout"));
-const PlatformAdminOverview = lazyWithRetry(() => import("@/pages/platform-admin"));
-const PlatformAdminStudios = lazyWithRetry(() => import("@/pages/platform-admin/studios"));
-const PlatformAdminUsers = lazyWithRetry(() => import("@/pages/platform-admin/users"));
-const PlatformAdminMetrics = lazyWithRetry(() => import("@/pages/platform-admin/metrics"));
-// Studio Admin Pages
-const StudioAdminLayout = lazyWithRetry(() => import("@/pages/studio-admin/layout"));
-const StudioAdminOverview = lazyWithRetry(() => import("@/pages/studio-admin"));
-const StudioAdminMembers = lazyWithRetry(() => import("@/pages/studio-admin/members"));
-const StudioAdminProjects = lazyWithRetry(() => import("@/pages/studio-admin/projects"));
-const StudioAdminSessions = lazyWithRetry(() => import("@/pages/studio-admin/sessions"));
-const StudioAdminTakes = lazyWithRetry(() => import("@/pages/studio-admin/takes"));
-const StudioAdminSettings = lazyWithRetry(() => import("@/pages/studio-admin/settings"));
+
 // Studio Pages (imported from the HUBDUB-STUDIO folder)
-const Login = lazyWithRetry(() => import("@/pages/auth/login"));
-const Signup = lazyWithRetry(() => import("@/pages/auth/signup"));
+const Login = lazyWithRetry(() => import("@studio/pages/login"));
 const StudioSelect = lazyWithRetry(() => import("@studio/pages/studio-select"));
 const Dashboard = lazyWithRetry(() => import("@studio/pages/dashboard"));
 const Productions = lazyWithRetry(() => import("@studio/pages/productions"));
@@ -60,14 +50,13 @@ const Sessions = lazyWithRetry(() => import("@studio/pages/sessions"));
 const RecordingRoom = lazyWithRetry(() => import("@studio/pages/room"));
 const Staff = lazyWithRetry(() => import("@studio/pages/staff"));
 const Admin = lazyWithRetry(() => import("@studio/pages/admin"));
-const StudioAdmin = lazyWithRetry(() => import("@studio/pages/studio-admin"));
-const StudioMain = lazyWithRetry(() => import("@studio/pages/admin/StudioMain"));
+const Notifications = lazyWithRetry(() => import("@studio/pages/notifications"));
 const Members = lazyWithRetry(() => import("@studio/pages/members"));
+const StudioAdmin = lazyWithRetry(() => import("@studio/pages/studio-admin"));
 const Takes = lazyWithRetry(() => import("@studio/pages/takes"));
 const Profile = lazyWithRetry(() => import("@studio/pages/profile"));
 const Daw = lazyWithRetry(() => import("@studio/pages/daw"));
 const SecretariaLogin = lazyWithRetry(() => import("@studio/pages/secretaria-login"));
-const StudioManagement = lazyWithRetry(() => import("@studio/pages/studio-management"));
 
 import { StudioLayout } from "@studio/components/layout/studio-layout";
 
@@ -126,116 +115,21 @@ function Router() {
             </motion.div>
           </Route>
 
-          <Route path="/hub-align">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="w-full min-h-screen bg-background"
-            >
-              <HubAlign />
-            </motion.div>
-          </Route>
-
-          {/* Platform Admin Routes */}
-          <Route path="/platform-admin">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <PlatformAdminLayout>
-                <PlatformAdminOverview />
-              </PlatformAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/platform-admin/studios">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <PlatformAdminLayout>
-                <PlatformAdminStudios />
-              </PlatformAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/platform-admin/users">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <PlatformAdminLayout>
-                <PlatformAdminUsers />
-              </PlatformAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/platform-admin/metrics">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <PlatformAdminLayout>
-                <PlatformAdminMetrics />
-              </PlatformAdminLayout>
-            </motion.div>
-          </Route>
-
-          {/* Studio Admin Routes */}
-          <Route path="/studio-admin">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminOverview />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/studio-admin/members">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminMembers />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/studio-admin/projects">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminProjects />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/studio-admin/sessions">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminSessions />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/studio-admin/takes">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminTakes />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-          <Route path="/studio-admin/settings">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
-              <StudioAdminLayout>
-                <StudioAdminSettings />
-              </StudioAdminLayout>
-            </motion.div>
-          </Route>
-
           {/* HUBDUB-STUDIO Fusion Routes */}
           <Route path="/hub-dub">
             <Redirect to="/hub-dub/login" />
           </Route>
 
-
+          <Route path="/hub-align/:rest*">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-hidden z-50">
+              <HubAlign />
+            </motion.div>
+          </Route>
 
           <Route path="/hub-dub/login">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
               <Login />
             </motion.div>
-          </Route>
-
-          <Route path="/hub-dub/signup">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
-              <Signup />
-            </motion.div>
-          </Route>
-
-          <Route path="/auth/login">
-            <Redirect to="/hub-dub/login" />
-          </Route>
-
-          <Route path="/auth/signup">
-            <Redirect to="/hub-dub/signup" />
           </Route>
 
           <Route path="/hub-dub/secretaria/login">
@@ -293,7 +187,7 @@ function Router() {
           </Route>
 
           <Route path="/hub-dub/studio/:studioId/notifications">
-            {params => <ProtectedRoute component={Notification} requireStudio params={params} />}
+            {params => <ProtectedRoute component={Notifications} requireStudio params={params} />}
           </Route>
 
           <Route path="/hub-dub/studio/:studioId/takes">
@@ -304,14 +198,6 @@ function Router() {
             {params => <ProtectedRoute component={StudioAdmin} requireStudio params={params} />}
           </Route>
 
-          <Route path="/hub-dub/studio/:studioId/admin/main">
-            {params => <ProtectedRoute component={StudioMain} requireStudio params={params} />}
-          </Route>
-
-          <Route path="/hub-dub/admin/studios/:studioId/management">
-            {params => <ProtectedRoute component={StudioManagement} requireStudio params={params} />}
-          </Route>
-
           <Route path="/hub-dub/studio/:studioId/sessions/:sessionId/room">
             {params => (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
@@ -320,12 +206,60 @@ function Router() {
             )}
           </Route>
 
-          <Route path="/hub-dub/:rest*">
-            <NotFound />
+          <Route path="/hub-dub/studio/:studioId/notifications">
+            {params => (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
+                <ProtectedRoute component={Notifications} requireStudio params={params} />
+              </motion.div>
+            )}
           </Route>
-          <Route>
-            <NotFound />
+
+          <Route path="/hub-dub/studio/:studioId/takes">
+            {params => (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
+                <ProtectedRoute component={Takes} requireStudio params={params} />
+              </motion.div>
+            )}
           </Route>
+
+          <Route path="/hub-dub/studio/:studioId/admin">
+            {params => (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
+                <ProtectedRoute component={StudioAdmin} requireStudio params={params} />
+              </motion.div>
+            )}
+          </Route>
+
+          <Route path="/hub-dub/studio/:studioId/staff">
+            {params => (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
+                <ProtectedRoute component={Staff} requireStudio params={params} />
+              </motion.div>
+            )}
+          </Route>
+
+          <Route path="/hub-dub/studio/:studioId/members">
+            {params => (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full">
+                <ProtectedRoute component={Members} requireStudio params={params} />
+              </motion.div>
+            )}
+          </Route>
+
+          {/* HubSchool Routes */}
+          <Route path="/hubschool/course/:slug">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
+              <HubSchoolCourse />
+            </motion.div>
+          </Route>
+
+          <Route path="/hubschool">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full h-full fixed inset-0 bg-background overflow-y-auto z-50">
+              <HubSchool />
+            </motion.div>
+          </Route>
+
+          <Route component={NotFound} />
         </Switch>
       </AnimatePresence>
     </Suspense>
@@ -333,21 +267,20 @@ function Router() {
 }
 
 export default function App() {
-  useEffect(() => {
-    initThemeMode();
-  }, []);
-
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <ErrorBoundary>
-          <WouterRouter hook={memoryHook} searchHook={memorySearchHook}>
-            <Toaster />
-            <RealtimeInvalidation />
-            <Router />
-          </WouterRouter>
-        </ErrorBoundary>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ErrorBoundary>
+            <WouterRouter hook={memoryHook} searchHook={memorySearchHook}>
+              <Toaster />
+              <BackButton />
+              <RealtimeInvalidation />
+              <Router />
+            </WouterRouter>
+          </ErrorBoundary>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

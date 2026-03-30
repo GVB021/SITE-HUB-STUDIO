@@ -11,7 +11,7 @@ import { Textarea } from "@studio/components/ui/textarea";
 import {
   Plus, Film, Search, MoreVertical, Upload, UserPlus,
   Settings2, FileJson, Download, Loader2, Trash2, Save,
-  Clock, MessageSquare, FileText, ClipboardPaste
+  Clock, MessageSquare, ClipboardPaste
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
@@ -254,7 +254,6 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
   const [activeTab, setActiveTab] = useState<"details" | "script" | "characters">("details");
   const [showJsonModal, setShowJsonModal] = useState(false);
   const [jsonPasteText, setJsonPasteText] = useState("");
-  const [isPdfLoading, setIsPdfLoading] = useState(false);
 
   useEffect(() => {
     if (!production) return;
@@ -316,51 +315,14 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
   };
 
   const toTempoEmSegundos = (val: any): number => {
-    return parseUniversalTimecodeToSeconds(val ?? "00:00:00:00", 23.976);
-  };
-
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    setIsPdfLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await authFetch(`/api/productions/${productionId}/parse-pdf`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.message || `Erro ${res.status}`);
-      }
-      const result = await res.json();
-      const lines: ScriptLine[] = (result.lines || []).map((l: any) => ({
-        character: String(l.character || ""),
-        start: String(l.start || "00:00:00"),
-        tempo: String(l.start || "00:00:00"),
-        tempoEmSegundos: toTempoEmSegundos(l.start || "00:00:00"),
-        text: String(l.text || ""),
-        notes: String(l.notes || ""),
-      }));
-      if (lines.length === 0) throw new Error("Nenhuma linha detectada no PDF.");
-      
-      setScriptLines(lines);
-      setScriptDirty(true);
-      toast({ title: `${lines.length} linha${lines.length !== 1 ? "s" : ""} importadas do PDF (${result.pageCount} página${result.pageCount !== 1 ? "s" : ""})` });
-    } catch (err: any) {
-      toast({ title: "Erro ao processar PDF", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsPdfLoading(false);
-    }
+    return parseUniversalTimecodeToSeconds(val ?? "00:00:00", 24);
   };
 
   const handleScriptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         let rawLines: any[];
@@ -399,7 +361,6 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
             notes: String(line?.notes || line?.notas || line?.note || ""),
           });
         }
-        
         setScriptLines(normalized);
         setScriptDirty(true);
         toast({ title: `${normalized.length} linha${normalized.length !== 1 ? "s" : ""} carregada${normalized.length !== 1 ? "s" : ""} do arquivo` });
@@ -411,115 +372,57 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
     e.target.value = "";
   };
 
-  const safeToTempoEmSegundos = (val: any): number => {
-    try { return toTempoEmSegundos(val); } catch { return 0; }
-  };
-
-  const parseRawLines = (rawLines: any[]): ScriptLine[] =>
-    rawLines.map((line: any) => {
-      const tempoRaw = line?.tempo ?? line?.start ?? line?.timecode ?? line?.tc ?? line?.in ?? null;
-      const startStr = tempoRaw != null ? String(tempoRaw) : "00:00:00:00";
-      return {
-        character: String(line?.character || line?.personagem || line?.char || line?.name || ""),
-        start: startStr,
-        tempo: startStr,
-        tempoEmSegundos: safeToTempoEmSegundos(tempoRaw),
-        text: String(line?.text || line?.fala || line?.dialogue || line?.dialog || line?.line || ""),
-        notes: String(line?.notes || line?.notas || line?.note || ""),
-      };
-    });
-
-  // Function to extract unique character names from script lines
-  const extractCharactersFromScript = (lines: ScriptLine[]): string[] => {
-    const characterNames = new Set<string>();
-    
-    lines.forEach(line => {
-      const charName = line.character?.trim();
-      if (charName && charName.length > 0 && charName !== "") {
-        // Clean up character name (remove extra spaces, normalize case)
-        const cleanName = charName.replace(/\s+/g, ' ').trim();
-        if (cleanName && cleanName !== "") {
-          characterNames.add(cleanName);
-        }
+  const handleJsonPaste = () => {
+    try {
+      const json = JSON.parse(jsonPasteText.trim());
+      let rawLines: any[];
+      if (Array.isArray(json)) {
+        rawLines = json;
+      } else if (json.lines && Array.isArray(json.lines)) {
+        rawLines = json.lines;
+      } else if (json.script && Array.isArray(json.script)) {
+        rawLines = json.script;
+      } else {
+        toast({ title: "Formato nao reconhecido", description: "Cole um array JSON ou um objeto com chave 'lines'.", variant: "destructive" });
+        return;
       }
-    });
-    
-    return Array.from(characterNames).sort();
-  };
+      const normalized: ScriptLine[] = [];
+      for (let i = 0; i < rawLines.length; i += 1) {
+        const line = rawLines[i];
+        const tempoOriginal = line?.tempo ?? line?.start ?? line?.timecode ?? line?.tc ?? line?.in ?? null;
+        let tempoEmSegundos: number;
+        try {
+          tempoEmSegundos = toTempoEmSegundos(tempoOriginal);
+        } catch (err: any) {
+          toast({
+            title: "Tempo inválido no JSON",
+            description: `Linha ${i + 1}: ${String(tempoOriginal ?? "")} (${String(err?.message || "erro")})`,
+            variant: "destructive",
+          });
+          return;
+        }
 
-  // Function to automatically add missing characters to production
-  const syncCharactersToProduction = async (characterNames: string[]) => {
-    if (!characterNames || characterNames.length === 0) return;
-    
-    // Get existing character names
-    const existingCharNames = new Set(
-      characters?.map((char: { name: string }) => char.name.toLowerCase()) || []
-    );
-    
-    // Find characters that don't exist yet
-    const missingCharacters = characterNames.filter(
-      name => !existingCharNames.has(name.toLowerCase())
-    );
-    
-    if (missingCharacters.length === 0) return;
-    
-    // Add missing characters to production
-    try {
-      const promises = missingCharacters.map(charName => 
-        createChar.mutateAsync({ name: charName.trim(), voiceActorId: null })
-      );
-      
-      await Promise.all(promises);
-      
-      toast({ 
-        title: "Personagens adicionados automaticamente", 
-        description: `${missingCharacters.length} novo${missingCharacters.length !== 1 ? "s" : ""} personagem${missingCharacters.length !== 1 ? "s" : ""} adicionado${missingCharacters.length !== 1 ? "s" : ""}` 
-      });
-    } catch (err: any) {
-      toast({ 
-        title: "Erro ao adicionar personagens", 
-        description: err?.message || "Tente adicionar manualmente.", 
-        variant: "destructive" 
-      });
-    }
-  };
-
-  const handleJsonPaste = async () => {
-    const raw = jsonPasteText.trim();
-    if (!raw) return;
-    let json: any;
-    try {
-      json = JSON.parse(raw);
+        normalized.push({
+          character: String(line?.character || line?.personagem || line?.char || line?.name || ""),
+          start: toTimecodeString(tempoOriginal),
+          tempo: String(tempoOriginal ?? "00:00:00"),
+          tempoEmSegundos,
+          text: String(line?.text || line?.fala || line?.dialogue || line?.dialog || line?.line || ""),
+          notes: String(line?.notes || line?.notas || line?.note || ""),
+        });
+      }
+      setScriptLines(normalized);
+      setScriptDirty(true);
+      setShowJsonModal(false);
+      setJsonPasteText("");
+      toast({ title: `${normalized.length} linha${normalized.length !== 1 ? "s" : ""} importada${normalized.length !== 1 ? "s" : ""} com sucesso` });
     } catch {
-      toast({ title: "JSON inválido", description: "Verifique a sintaxe e tente novamente.", variant: "destructive" });
-      return;
+      toast({ title: "JSON invalido", description: "Verifique a sintaxe do JSON colado e tente novamente.", variant: "destructive" });
     }
-    let rawLines: any[];
-    if (Array.isArray(json)) {
-      rawLines = json;
-    } else if (json?.lines && Array.isArray(json.lines)) {
-      rawLines = json.lines;
-    } else if (json?.script && Array.isArray(json.script)) {
-      rawLines = json.script;
-    } else {
-      toast({ title: "Formato não reconhecido", description: "Cole um array JSON ou objeto com chave 'lines'.", variant: "destructive" });
-      return;
-    }
-    const normalized = parseRawLines(rawLines);
-    
-    setScriptLines(normalized);
-    setScriptDirty(true);
-    setShowJsonModal(false);
-    setJsonPasteText("");
-    toast({ title: `${normalized.length} linha${normalized.length !== 1 ? "s" : ""} importadas com sucesso` });
   };
 
   const handleSaveScript = async () => {
     try {
-      // Extract and sync characters before saving
-      const extractedCharacters = extractCharactersFromScript(scriptLines);
-      await syncCharactersToProduction(extractedCharacters);
-      
       const json = JSON.stringify({ lines: scriptLines });
       await updateProd.mutateAsync({ scriptJson: json });
       setScriptDirty(false);
@@ -536,14 +439,22 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
     setScriptDirty(true);
   };
 
-  const updateScriptLine = async (idx: number, field: keyof ScriptLine, value: string) => {
+  const updateScriptLine = (idx: number, field: keyof ScriptLine, value: string) => {
     setScriptLines(prev => {
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], [field]: value };
+      const next = { ...updated[idx], [field]: value } as ScriptLine;
+      if (field === "start") {
+        next.tempo = value;
+        try {
+          next.tempoEmSegundos = toTempoEmSegundos(value);
+        } catch {
+          next.tempoEmSegundos = undefined;
+        }
+      }
+      updated[idx] = next;
       return updated;
     });
     setScriptDirty(true);
-    
   };
 
   const removeScriptLine = (idx: number) => {
@@ -560,7 +471,6 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
   };
 
   return (
-    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
@@ -587,7 +497,7 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
               )}
               {tab === "script" && scriptDirty && (
-                <span className="ml-1.5 w-2 h-2 bg-blue-500 rounded-full inline-block" />
+                <span className="ml-1.5 w-2 h-2 bg-amber-500 rounded-full inline-block" />
               )}
             </button>
           ))}
@@ -660,25 +570,14 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
                     {scriptLines.length} linha{scriptLines.length !== 1 ? "s" : ""}
                   </span>
                   {scriptDirty && (
-                    <span className="text-xs text-blue-400 bg-blue-500/12 px-2 py-0.5 rounded-full border border-blue-500/25">
+                    <span className="text-xs text-amber-400 bg-amber-500/12 px-2 py-0.5 rounded-full border border-amber-500/25">
                       Nao salvo
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" className="relative gap-1.5" disabled={isPdfLoading} data-testid="button-upload-pdf">
-                    {isPdfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-                    {isPdfLoading ? "Processando..." : "Importar PDF"}
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      onChange={handlePdfUpload}
-                      disabled={isPdfLoading}
-                    />
-                  </Button>
                   <Button variant="outline" size="sm" className="relative gap-1.5" data-testid="button-upload-script">
-                    <Upload className="w-3.5 h-3.5" /> Importar JSON
+                    <Upload className="w-3.5 h-3.5" /> Importar arquivo
                     <input
                       type="file"
                       accept=".json"
@@ -686,37 +585,14 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
                       onChange={handleScriptUpload}
                     />
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setShowJsonModal(v => !v); setJsonPasteText(""); }} data-testid="button-paste-json">
-                    <ClipboardPaste className="w-3.5 h-3.5" /> {showJsonModal ? "Cancelar" : "Colar JSON"}
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowJsonModal(true)} data-testid="button-paste-json">
+                    <ClipboardPaste className="w-3.5 h-3.5" /> Colar JSON
                   </Button>
                   <Button size="sm" onClick={addScriptLine} className="gap-1.5" data-testid="button-add-script-line">
                     <Plus className="w-3.5 h-3.5" /> Adicionar Linha
                   </Button>
                 </div>
               </div>
-
-              {showJsonModal && (
-                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Cole um array JSON com os campos <span className="text-primary font-semibold">personagem</span>, <span className="text-primary font-semibold">fala</span> e <span className="text-muted-foreground font-semibold">tempo</span> (opcional).
-                  </p>
-                  <textarea
-                    value={jsonPasteText}
-                    onChange={(e) => setJsonPasteText(e.target.value)}
-                    placeholder={`[\n  { "personagem": "NOME", "tempo": "00:00:00", "fala": "Texto da fala" }\n]`}
-                    className="w-full min-h-[160px] rounded-md border border-border bg-background text-xs font-mono text-foreground p-3 resize-y outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-                    data-testid="textarea-json-paste"
-                    spellCheck={false}
-                    autoFocus
-                  />
-                  <div className="flex gap-2 justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => { setShowJsonModal(false); setJsonPasteText(""); }} data-testid="button-cancel-json">Cancelar</Button>
-                    <Button size="sm" onClick={handleJsonPaste} disabled={!jsonPasteText.trim()} className="gap-1.5" data-testid="button-confirm-json">
-                      <Upload className="w-3.5 h-3.5" /> Confirmar Importação
-                    </Button>
-                  </div>
-                </div>
-              )}
 
               {scriptLines.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -815,6 +691,33 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
             </div>
           )}
 
+          {/* JSON PASTE MODAL */}
+          <Dialog open={showJsonModal} onOpenChange={(open) => { setShowJsonModal(open); if (!open) setJsonPasteText(""); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-bold uppercase tracking-widest">Importar Roteiro via JSON</DialogTitle>
+              </DialogHeader>
+              <p className="text-xs text-muted-foreground">
+                Cole um array JSON com os campos <span className="text-primary font-semibold">personagem</span>, <span className="text-primary font-semibold">fala</span> e <span className="text-muted-foreground font-semibold">tempo</span> (opcional).
+              </p>
+              <textarea
+                value={jsonPasteText}
+                onChange={(e) => setJsonPasteText(e.target.value)}
+                placeholder={`[\n  { "personagem": "NOME", "tempo": "00:00:00", "fala": "Texto da fala" }\n]`}
+                className="w-full min-h-[200px] rounded-md border border-white/10 bg-black/40 text-xs font-mono text-foreground p-3 resize-y outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                data-testid="textarea-json-paste"
+                spellCheck={false}
+              />
+              <DialogFooter className="gap-2">
+                <Button variant="ghost" onClick={() => { setShowJsonModal(false); setJsonPasteText(""); }} data-testid="button-cancel-json">
+                  Cancelar
+                </Button>
+                <Button onClick={handleJsonPaste} disabled={!jsonPasteText.trim()} className="gap-1.5" data-testid="button-confirm-json">
+                  <Upload className="w-4 h-4" /> Confirmar Importação
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {activeTab === "characters" && (
             <div className="space-y-4">
@@ -851,7 +754,5 @@ function ManageProductionDialog({ productionId, studioId, open, onOpenChange }: 
         </div>
       </DialogContent>
     </Dialog>
-
-    </>
   );
 }

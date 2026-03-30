@@ -57,18 +57,16 @@ async function fetchWithRetry(
       const elapsedMs = Date.now() - startedAt;
       if (res.ok || !shouldRetry(res.status) || attempt === retries) {
         if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      logger.warn("[Supabase] Request failed", {
-        op: meta.op,
-        status: res.status,
-        elapsedMs,
-        attempt,
-        attemptHint: meta.attemptHint || null,
-        error: text.slice(0, 500),
-      });
-    } else {
-      logger.debug("[Supabase] Request ok", { op: meta.op, status: res.status, elapsedMs, attempt });
-    }
+          logger.warn("[Supabase] Request failed", {
+            op: meta.op,
+            status: res.status,
+            elapsedMs,
+            attempt,
+            attemptHint: meta.attemptHint || null,
+          });
+        } else {
+          logger.debug("[Supabase] Request ok", { op: meta.op, status: res.status, elapsedMs, attempt });
+        }
         return res;
       }
       logger.warn("[Supabase] Retryable response", { op: meta.op, status: res.status, elapsedMs, attempt });
@@ -212,58 +210,6 @@ export async function uploadToSupabaseStorage(params: {
   return publicUrl;
 }
 
-export async function uploadJsonToSupabaseStorage(params: {
-  bucket: string;
-  path: string;
-  data: unknown;
-}) {
-  const body = Buffer.from(JSON.stringify(params.data ?? {}), "utf8");
-  return uploadToSupabaseStorage({
-    bucket: params.bucket,
-    path: params.path,
-    buffer: body,
-    contentType: "application/json; charset=utf-8",
-  });
-}
-
-export async function listSupabaseStorageObjects(params: {
-  bucket: string;
-  prefix?: string;
-  limit?: number;
-  offset?: number;
-  sortBy?: { column: "name" | "updated_at" | "created_at" | "last_accessed_at"; order: "asc" | "desc" };
-}) {
-  requireSupabase();
-  const bucket = String(params.bucket || "").trim();
-  if (!bucket) throw new Error("Supabase bucket is required");
-
-  const baseUrl = getSupabaseBaseUrl();
-  const url = `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucket)}`;
-  const payload = {
-    prefix: String(params.prefix || "").replace(/^\/+/, ""),
-    limit: Math.max(1, Math.min(500, Number(params.limit || 100))),
-    offset: Math.max(0, Number(params.offset || 0)),
-    sortBy: params.sortBy || { column: "name", order: "asc" },
-  };
-
-  const res = await fetchWithRetry(
-    url,
-    {
-      method: "POST",
-      headers: supabaseHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify(payload),
-    },
-    { op: "storage.object.list", attemptHint: `${bucket}/${payload.prefix}` },
-    { retries: 2, baseDelayMs: 250 },
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Supabase list failed: HTTP ${res.status} ${text}`.trim());
-  }
-  const out = await res.json().catch(() => []);
-  return Array.isArray(out) ? out : [];
-}
-
 export function parseSupabaseStorageUrl(input: string): { bucket: string; path: string } | null {
   const raw = String(input || "").trim();
   if (!raw) return null;
@@ -272,7 +218,6 @@ export function parseSupabaseStorageUrl(input: string): { bucket: string; path: 
     const p = u.pathname.replace(/\/+$/g, "");
     const publicPrefix = "/storage/v1/object/public/";
     const objectPrefix = "/storage/v1/object/";
-    const signPrefix = "/storage/v1/object/sign/";
 
     const fromPrefix = (prefix: string) => {
       if (!p.startsWith(prefix)) return null;
@@ -285,7 +230,7 @@ export function parseSupabaseStorageUrl(input: string): { bucket: string; path: 
       return { bucket, path };
     };
 
-    return fromPrefix(publicPrefix) || fromPrefix(signPrefix) || fromPrefix(objectPrefix);
+    return fromPrefix(publicPrefix) || fromPrefix(objectPrefix);
   } catch {
     return null;
   }
@@ -317,9 +262,7 @@ export async function downloadFromSupabaseStorage(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    const errorMsg = `Supabase download failed: HTTP ${res.status} ${text.slice(0, 500)}`.trim();
-    logger.error("[Supabase] Download error", { bucket, objectPath, status: res.status, error: text });
-    throw new Error(errorMsg);
+    throw new Error(`Supabase download failed: HTTP ${res.status} ${text}`.trim());
   }
 
   return res;
@@ -359,43 +302,4 @@ export async function downloadFromSupabaseStorageUrl(audioUrl: string, opts?: { 
     throw new Error("Unsupported Supabase URL");
   }
   return downloadFromSupabaseStorage(parsed, opts);
-}
-
-export async function createSignedSupabaseUrlFromPublicUrl(audioUrl: string, expiresInSeconds: number) {
-  requireSupabase();
-  const parsed = parseSupabaseStorageUrl(audioUrl);
-  if (!parsed) {
-    throw new Error("Unsupported Supabase URL");
-  }
-  const baseUrl = getSupabaseBaseUrl();
-  const bucket = String(parsed.bucket || "").trim();
-  const objectPath = joinPath(parsed.path);
-  if (!bucket || !objectPath) throw new Error("Invalid Supabase object reference");
-
-  const signUrl = `${baseUrl}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${objectPath
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}`;
-
-  const res = await fetchWithRetry(
-    signUrl,
-    {
-      method: "POST",
-      headers: supabaseHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ expiresIn: Math.max(60, Math.floor(expiresInSeconds || 0)) }),
-    },
-    { op: "storage.object.sign", attemptHint: `${bucket}/${objectPath}` },
-    { retries: 2, baseDelayMs: 250 },
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Supabase sign failed: HTTP ${res.status} ${text}`.trim());
-  }
-  const payload = await res.json().catch(() => ({} as any));
-  const signedPath = String(payload?.signedURL || payload?.signedUrl || "").trim();
-  if (!signedPath) {
-    throw new Error("Supabase sign response missing signedURL");
-  }
-  if (/^https?:\/\//i.test(signedPath)) return signedPath;
-  return `${baseUrl}${signedPath.startsWith("/") ? "" : "/"}${signedPath}`;
 }

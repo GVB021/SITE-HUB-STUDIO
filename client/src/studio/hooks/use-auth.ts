@@ -81,14 +81,7 @@ export function useAuth() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async (formData: {
-      email: string;
-      fullName: string;
-      password: string;
-      studioId: string;
-      whatsapp: string;
-      birthDate: string;
-    }) => {
+    mutationFn: async (formData: Record<string, string>) => {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,11 +93,6 @@ export function useAuth() {
         throw new Error(data.message || "Erro ao criar conta");
       }
       return data;
-    },
-    onSuccess: (data: any) => {
-      const nextUser: User | null = data?.user || null;
-      if (nextUser) writeCachedUser(nextUser);
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
     },
   });
 

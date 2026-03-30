@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@studio/hooks/use-auth";
 import { useLocation } from "wouter";
 import {
   ShieldAlert, LayoutDashboard, Users, Building2, Film,
-  Calendar, Clock3, Mic2, ClipboardList, KeyRound, HardDrive,
+  Calendar, Mic2, ClipboardList, KeyRound, HardDrive,
   LogOut, ChevronRight, Trash2, Pencil, Plus, RotateCcw,
   CheckCircle2, AlertCircle, Save, Search, RefreshCw,
   Eye, EyeOff, Activity, Database, BadgeCheck, XCircle,
-  UserCog, ToggleLeft, ToggleRight, Star, Download, AudioLines
+  UserCog, ToggleLeft, ToggleRight, Star
 } from "lucide-react";
 import { Button } from "@studio/components/ui/button";
 import { Input } from "@studio/components/ui/input";
@@ -41,18 +41,20 @@ const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "integrations", label: "API e Integracoes", icon: KeyRound },
 ];
 
-const ROLES = ["owner", "user", "dubber"];
+const ROLES = ["platform_owner", "user", "aluno"];
 
 const ALL_STUDIO_ROLES = [
-  { value: "admin", label: "Admin Estudio" },
-  { value: "director", label: "Diretor" },
-  { value: "dubber", label: "Dublador" },
+  { value: "studio_admin", label: "Admin Estudio" },
+  { value: "diretor", label: "Diretor" },
+  { value: "engenheiro_audio", label: "Engenheiro de Audio" },
+  { value: "dublador", label: "Dublador" },
+  { value: "aluno", label: "Aluno" },
 ];
 
 function roleBadgeVariant(role: string): "destructive" | "default" | "secondary" | "outline" {
-  if (role === "owner") return "destructive";
-  if (role === "admin") return "default";
-  if (role === "director") return "secondary";
+  if (role === "platform_owner") return "destructive";
+  if (role === "studio_admin") return "default";
+  if (role === "diretor") return "secondary";
   return "outline";
 }
 
@@ -78,183 +80,64 @@ function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLa
   );
 }
 
-const MONTH_NAMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-
-function formatRelativeTime(dateInput: string | number | Date): string {
-  const timestamp = new Date(dateInput).getTime();
-  if (Number.isNaN(timestamp)) return "";
-  const diffMs = Date.now() - timestamp;
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "agora";
-  if (minutes < 60) return `há ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} h`;
-  const days = Math.floor(hours / 24);
-  return `há ${days} dia${days > 1 ? "s" : ""}`;
+function StatCard({ label, value, icon: Icon, color }: { label: string; value: number | string; icon: React.ElementType; color: string }) {
+  return (
+    <div className="vhub-card p-5">
+      <div className="flex items-start justify-between mb-3">
+        <span className="vhub-label">{label}</span>
+        <div className={`shrink-0 w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center`}>
+          <Icon className={`h-4 w-4 ${color}`} />
+        </div>
+      </div>
+      <div className="text-3xl font-bold text-foreground">{value}</div>
+    </div>
+  );
 }
 
-function OverviewSection({ onNavigateSection, onCreateSession }: { onNavigateSection: (section: Section) => void; onCreateSession: () => void; }) {
-  const { data: usersList = [], isLoading: usersLoading } = useQuery({
-    queryKey: ["/api/admin/users"],
-    queryFn: () => authFetch("/api/admin/users") as Promise<any[]>,
-    refetchInterval: 10000,
+function OverviewSection() {
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ["/api/admin/stats"],
+    queryFn: () => authFetch("/api/admin/stats") as Promise<Record<string, number>>,
+    refetchInterval: 5000,
   });
-
-  const { data: sessionsList = [], isLoading: sessionsLoading } = useQuery({
-    queryKey: ["/api/admin/sessions"],
-    queryFn: () => authFetch("/api/admin/sessions") as Promise<any[]>,
-    refetchInterval: 10000,
-  });
-
-  const { data: takesList = [], isLoading: takesLoading } = useQuery({
-    queryKey: ["/api/admin/takes"],
-    queryFn: () => authFetch("/api/admin/takes") as Promise<any[]>,
-    refetchInterval: 10000,
-  });
-
-  const { data: logs = [], isLoading: logsLoading } = useQuery({
+  const { data: logs } = useQuery({
     queryKey: ["/api/admin/audit"],
     queryFn: () => authFetch("/api/admin/audit") as Promise<any[]>,
-    refetchInterval: 10000,
+    refetchInterval: 5000,
   });
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const todayEnd = todayStart + 24 * 60 * 60 * 1000;
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-  const totalDubbers = useMemo(() => {
-    if (usersLoading) return "—";
-    const isVoiceActor = (user: any) => {
-      if (user.role === "dubber") return true;
-      return user.studioMemberships?.some((m: any) => m.roles?.includes("dubber"));
-    };
-    return usersList.filter((u: any) => u.status === "approved" && isVoiceActor(u)).length;
-  }, [usersList, usersLoading]);
-
-  const scheduledSoon = useMemo(() => {
-    if (sessionsLoading) return "—";
-    const upcoming = sessionsList.filter((sess: any) => {
-      if (sess.status !== "scheduled") return false;
-      const time = new Date(sess.scheduledAt).getTime();
-      return time >= Date.now();
-    });
-    return upcoming.length;
-  }, [sessionsList, sessionsLoading]);
-
-  const sessionsToday = useMemo(() => {
-    if (sessionsLoading) return "—";
-    return sessionsList.filter((sess: any) => {
-      const time = new Date(sess.scheduledAt).getTime();
-      return time >= todayStart && time < todayEnd;
-    }).length;
-  }, [sessionsList, sessionsLoading, todayStart, todayEnd]);
-
-  const takesThisMonth = useMemo(() => {
-    if (takesLoading) return "—";
-    return takesList.filter((take: any) => {
-      const created = new Date(take.createdAt).getTime();
-      return created >= monthStart;
-    }).length;
-  }, [takesList, takesLoading, monthStart]);
-
-  const cards = [
-    { label: "Dubladores ativos", value: totalDubbers, icon: Mic2, accent: "from-rose-500/10 to-rose-500/0" },
-    { label: "Sessoes agendadas", value: scheduledSoon, icon: Calendar, accent: "from-blue-500/10 to-blue-500/0" },
-    { label: "Sessoes hoje", value: sessionsToday, icon: Clock3, accent: "from-amber-500/10 to-amber-500/0" },
-    { label: `Takes (${MONTH_NAMES[now.getMonth()]})`, value: takesThisMonth, icon: AudioLines, accent: "from-violet-500/10 to-violet-500/0" },
-  ];
-
-  const latestLogs = useMemo(() => {
-    if (!logs?.length) return [];
-    return logs.slice(0, 5).map((log: any) => {
-      let details: any = {};
-      try {
-        details = log.details ? JSON.parse(log.details) : {};
-      } catch {
-        details = log.details || {};
-      }
-      return {
-        id: log.id,
-        action: log.action,
-        createdAt: log.createdAt,
-        details,
-        userName: details?.userName || details?.user || details?.actorName || log.user?.displayName || log.user?.fullName || log.user?.email || "Usuario",
-        summary: details?.summary || details?.message || log.action.replace(/[_\.]/g, " "),
-      };
-    });
-  }, [logs]);
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {cards.map(card => (
-          <div key={card.label} className="vhub-card p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">{card.label}</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{card.value}</p>
-              </div>
-              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${card.accent} flex items-center justify-center`}>
-                <card.icon className="w-5 h-5 text-foreground" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="vhub-card p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold">Acoes rapidas</p>
-            <p className="text-xs text-muted-foreground">Escolha um atalho para comecar</p>
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <Button className="h-14 justify-between px-5" onClick={onCreateSession}>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Nova Sessao
-            </div>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <Button className="h-14 justify-between px-5" variant="secondary" onClick={() => onNavigateSection("users")}>
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Gerenciar Usuarios
-            </div>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <Button className="h-14 justify-between px-5" variant="secondary" onClick={() => onNavigateSection("productions")}>
-            <div className="flex items-center gap-2">
-              <Film className="h-4 w-4" />
-              Ver Producoes
-            </div>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Visao Geral do Sistema</h2>
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Usuarios" value={isLoading ? "—" : stats?.users ?? 0} icon={Users} color="text-primary" />
+          <StatCard label="Pendentes" value={isLoading ? "—" : stats?.pendingUsers ?? 0} icon={AlertCircle} color="text-amber-400" />
+          <StatCard label="Estudios" value={isLoading ? "—" : stats?.studios ?? 0} icon={Building2} color="text-violet-400" />
+          <StatCard label="Producoes" value={isLoading ? "—" : stats?.productions ?? 0} icon={Film} color="text-emerald-400" />
+          <StatCard label="Sessoes" value={isLoading ? "—" : stats?.sessions ?? 0} icon={Calendar} color="text-primary" />
+          <StatCard label="Takes" value={isLoading ? "—" : stats?.takes ?? 0} icon={Mic2} color="text-rose-400" />
         </div>
       </div>
-
       <div className="vhub-card overflow-hidden">
         <div className="vhub-card-header">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground/80">
-            <Activity className="h-4 w-4" /> Ultimas atividades
+            <Activity className="h-4 w-4" /> Atividade Recente
           </div>
-          <p className="text-xs text-muted-foreground">Ultimos 5 eventos registrados</p>
         </div>
         <div className="vhub-card-body">
-          {logsLoading ? (
-            <p className="text-sm text-muted-foreground">Carregando...</p>
-          ) : !latestLogs.length ? (
-            <p className="text-sm text-muted-foreground">Nenhum registro recente.</p>
+          {!logs?.length ? (
+            <p className="text-sm text-muted-foreground">Nenhum registro de auditoria.</p>
           ) : (
-            <div className="space-y-3">
-              {latestLogs.map(log => (
-                <div key={log.id} className="flex items-center gap-3 p-3 rounded-lg border border-white/5">
-                  <BadgeCheck className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-sm font-medium truncate flex-1">
-                    {log.userName} {log.summary} · {formatRelativeTime(log.createdAt)}
-                  </p>
+            <div className="space-y-2">
+              {logs.slice(0, 10).map((log: any) => (
+                <div key={log.id} className="flex items-center gap-3 text-sm py-2 border-b border-white/6 last:border-0">
+                  <BadgeCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="font-mono text-xs text-muted-foreground w-36 shrink-0">
+                    {new Date(log.createdAt).toLocaleString()}
+                  </span>
+                  <span className="font-medium">{log.action}</span>
+                  {log.details && <span className="text-muted-foreground truncate">{log.details}</span>}
                 </div>
               ))}
             </div>
@@ -316,7 +199,7 @@ function PendingUsersSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-xl font-semibold flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-blue-400" />
+          <AlertCircle className="h-5 w-5 text-amber-400" />
           Usuarios Pendentes
           {pendingUsers.length > 0 && (
             <Badge variant="destructive" data-testid="badge-pending-count">{pendingUsers.length}</Badge>
@@ -430,7 +313,7 @@ function PendingUsersSection() {
               onClick={() => approveUser && approveStudioId && approveMut.mutate({
                 userId: approveUser.id,
                 studioId: approveStudioId,
-                studioRoles: approveRoles.length > 0 ? approveRoles : ["dubber"],
+                studioRoles: approveRoles.length > 0 ? approveRoles : ["dublador"],
               })}
               disabled={!approveStudioId || approveMut.isPending}
               data-testid="button-confirm-approve"
@@ -459,7 +342,6 @@ function UsersSection() {
   const [assignUser, setAssignUser] = useState<any | null>(null);
   const [assignStudioId, setAssignStudioId] = useState("");
   const [assignRoles, setAssignRoles] = useState<string[]>([]);
-  const [activityUser, setActivityUser] = useState<any | null>(null);
 
   const { data: usersList = [], isLoading } = useQuery({
     queryKey: ["/api/admin/users"],
@@ -473,22 +355,16 @@ function UsersSection() {
     refetchInterval: 5000,
   });
 
-  const { data: activityLogs = [] } = useQuery({
-    queryKey: ["/api/admin/users", activityUser?.id, "activity"],
-    enabled: Boolean(activityUser?.id),
-    queryFn: () => authFetch(`/api/admin/users/${activityUser.id}/activity`) as Promise<any[]>,
-  });
-
   const changeRoleMut = useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) =>
-      authFetch(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+      authFetch(`/api/admin/users/${id}/change-role`, { method: "POST", body: JSON.stringify({ role }) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/users"] }); qc.invalidateQueries({ queryKey: ["/api/admin/stats"] }); toast({ title: "Papel alterado" }); },
     onError: (e: any) => toast({ title: e.message || "Falha ao alterar papel", variant: "destructive" }),
   });
 
   const changeStatusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      authFetch(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+      authFetch(`/api/admin/users/${id}/change-status`, { method: "POST", body: JSON.stringify({ status }) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/users"] }); qc.invalidateQueries({ queryKey: ["/api/admin/stats"] }); qc.invalidateQueries({ queryKey: ["/api/admin/pending-users"] }); toast({ title: "Status alterado" }); },
     onError: (e: any) => toast({ title: e.message || "Falha ao alterar status", variant: "destructive" }),
   });
@@ -529,22 +405,13 @@ function UsersSection() {
     u.displayName?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const exportUsersCsv = () => {
-    window.open("/api/admin/users/export", "_blank", "noopener,noreferrer");
-  };
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Gerenciamento de Usuarios</h2>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={exportUsersCsv} data-testid="button-export-users">
-            <Download className="h-4 w-4 mr-2" /> Exportar CSV
-          </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
-            <Plus className="h-4 w-4 mr-2" /> Criar Usuario
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-user">
+          <Plus className="h-4 w-4 mr-2" /> Criar Usuario
+        </Button>
       </div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -564,9 +431,7 @@ function UsersSection() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(user => {
-                  const isMaster = String(user.email || "").toLowerCase() === "borbaggabriel@gmail.com";
-                  return (
+                {filtered.map(user => (
                   <tr key={user.id} className="border-b border-white/6 last:border-0 hover:bg-white/3" data-testid={`row-user-${user.id}`}>
                     <td className="p-3">
                       <div className="font-medium">{user.displayName || user.fullName || "—"}</div>
@@ -576,7 +441,6 @@ function UsersSection() {
                       <Select
                         value={user.status}
                         onValueChange={v => changeStatusMut.mutate({ id: user.id, status: v })}
-                        disabled={isMaster}
                       >
                         <SelectTrigger className="h-7 w-28 text-xs" data-testid={`select-status-${user.id}`}>
                           <SelectValue />
@@ -592,7 +456,6 @@ function UsersSection() {
                       <Select
                         value={user.role}
                         onValueChange={v => changeRoleMut.mutate({ id: user.id, role: v })}
-                        disabled={isMaster}
                       >
                         <SelectTrigger className="h-7 w-36 text-xs" data-testid={`select-role-${user.id}`}>
                           <SelectValue />
@@ -607,7 +470,7 @@ function UsersSection() {
                     </td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {user.role !== "owner" && (
+                        {user.role !== "platform_owner" && (
                           <Button size="icon" variant="ghost" title="Atribuir a estudio" onClick={() => { setAssignUser(user); setAssignStudioId(""); setAssignRoles([]); }} data-testid={`button-assign-user-${user.id}`}>
                             <Building2 className="h-3.5 w-3.5" />
                           </Button>
@@ -618,16 +481,13 @@ function UsersSection() {
                         <Button size="icon" variant="ghost" title="Redefinir senha" onClick={() => setResetUser(user)} data-testid={`button-reset-pw-${user.id}`}>
                           <RotateCcw className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="icon" variant="ghost" title="Atividades" onClick={() => setActivityUser(user)} data-testid={`button-activity-user-${user.id}`}>
-                          <Activity className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" title="Excluir" className="text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(user)} disabled={isMaster} data-testid={`button-delete-user-${user.id}`}>
+                        <Button size="icon" variant="ghost" title="Excluir" className="text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(user)} data-testid={`button-delete-user-${user.id}`}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </td>
                   </tr>
-                )})}
+                ))}
                 {filtered.length === 0 && (
                   <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">Nenhum usuario encontrado</td></tr>
                 )}
@@ -797,25 +657,6 @@ function UsersSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={!!activityUser} onOpenChange={() => setActivityUser(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Historico de Atividades</DialogTitle>
-            <DialogDescription>{activityUser?.email}</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-80 overflow-y-auto space-y-2">
-            {!activityLogs.length && <div className="text-sm text-muted-foreground">Sem atividades registradas.</div>}
-            {activityLogs.map((log: any) => (
-              <div key={log.id} className="rounded-md border border-border p-2.5 text-xs space-y-1">
-                <div className="font-medium">{log.action}</div>
-                <div className="text-muted-foreground">{new Date(log.createdAt).toLocaleString()}</div>
-                <div className="text-muted-foreground break-words">{log.details}</div>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -823,7 +664,6 @@ function UsersSection() {
 function StudiosSection() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
   const [editStudio, setEditStudio] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: "", slug: "", isActive: true });
@@ -843,7 +683,7 @@ function StudiosSection() {
     refetchInterval: 5000,
   });
 
-  const approvedUsers = usersList.filter((u: any) => u.role !== "owner" && u.status === "approved");
+  const approvedUsers = usersList.filter((u: any) => u.role !== "platform_owner" && u.status === "approved");
 
   const createMut = useMutation({
     mutationFn: (data: { name: string; studioAdminUserId?: string }) =>
@@ -926,15 +766,6 @@ function StudiosSection() {
                         </Button>
                         <Button size="icon" variant="ghost" title="Editar Estudio" onClick={() => { setEditStudio(studio); setEditForm({ name: studio.name, slug: studio.slug, isActive: studio.isActive }); }} data-testid={`button-edit-studio-${studio.id}`}>
                           <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="Gerenciar Estudio"
-                          onClick={() => setLocation(`/hub-dub/admin/studios/${studio.id}/management`)}
-                          data-testid={`button-study-manager-${studio.id}`}
-                        >
-                          <UserCog className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="ghost" title="Excluir Estudio" className="text-destructive hover:bg-destructive/10" onClick={() => setDeleteConfirm(studio)} data-testid={`button-delete-studio-${studio.id}`}>
                           <Trash2 className="h-4 w-4" />
@@ -1203,16 +1034,15 @@ const SESS_STATUSES = [
   { value: "cancelled", label: "Cancelada" },
 ];
 
-function SessionsSection({ createIntent = 0 }: { createIntent?: number }) {
+function SessionsSection() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
   const [editSess, setEditSess] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ title: "", scheduledAt: "", durationMinutes: "60", status: "" });
-  const [createOpen, setCreateOpen] = useState(createIntent > 0);
+  const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({ studioId: "", productionId: "", title: "", scheduledAt: "", durationMinutes: "60" });
   const [search, setSearch] = useState("");
-  const [forceLogoutUserId, setForceLogoutUserId] = useState<string>("");
 
   const { data: sessData = [], isLoading } = useQuery({
     queryKey: ["/api/admin/sessions"],
@@ -1228,18 +1058,6 @@ function SessionsSection({ createIntent = 0 }: { createIntent?: number }) {
   const { data: prodsList = [] } = useQuery({
     queryKey: ["/api/admin/productions"],
     queryFn: () => authFetch("/api/admin/productions") as Promise<any[]>,
-  });
-
-  const { data: activeSessionsByUser = [] } = useQuery({
-    queryKey: ["/api/admin/sessions/active-by-user"],
-    queryFn: () => authFetch("/api/admin/sessions/active-by-user") as Promise<any[]>,
-    refetchInterval: 5000,
-  });
-
-  const { data: authSessionsSummary = [] } = useQuery({
-    queryKey: ["/api/admin/auth-sessions/users"],
-    queryFn: () => authFetch("/api/admin/auth-sessions/users") as Promise<any[]>,
-    refetchInterval: 5000,
   });
 
   const deleteMut = useMutation({
@@ -1260,28 +1078,6 @@ function SessionsSection({ createIntent = 0 }: { createIntent?: number }) {
     onError: (e: any) => toast({ title: e.message || "Falha ao criar", variant: "destructive" }),
   });
 
-  const cleanupSessionsMut = useMutation({
-    mutationFn: () => authFetch("/api/admin/sessions/cleanup-expired", { method: "POST" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/sessions"] }); toast({ title: "Limpeza de sessoes concluida" }); },
-    onError: (e: any) => toast({ title: e.message || "Falha ao limpar sessoes", variant: "destructive" }),
-  });
-
-  const cleanupAuthMut = useMutation({
-    mutationFn: () => authFetch("/api/admin/auth-sessions/cleanup-expired", { method: "POST" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/auth-sessions/users"] }); toast({ title: "Sessoes web expiradas removidas" }); },
-    onError: (e: any) => toast({ title: e.message || "Falha ao limpar sessoes web", variant: "destructive" }),
-  });
-
-  const forceLogoutMut = useMutation({
-    mutationFn: (userId: string) => authFetch(`/api/admin/auth-sessions/force-logout-user/${userId}`, { method: "POST" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/admin/auth-sessions/users"] });
-      toast({ title: "Logout forcado aplicado" });
-      setForceLogoutUserId("");
-    },
-    onError: (e: any) => toast({ title: e.message || "Falha no logout forcado", variant: "destructive" }),
-  });
-
   const filtered = sessData.filter(s => s.title?.toLowerCase().includes(search.toLowerCase()));
 
   const filteredProds = createForm.studioId
@@ -1299,61 +1095,9 @@ function SessionsSection({ createIntent = 0 }: { createIntent?: number }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Gerenciamento de Sessoes</h2>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => cleanupSessionsMut.mutate()} disabled={cleanupSessionsMut.isPending} data-testid="button-cleanup-expired-sessions">
-            <RefreshCw className="h-4 w-4 mr-1.5" /> Limpar Expiradas
-          </Button>
-          <Button onClick={() => setCreateOpen(true)} data-testid="button-create-session">
-            <Plus className="h-4 w-4 mr-1.5" /> Nova Sessao
-          </Button>
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="vhub-card p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Sessoes Ativas por Usuario</h3>
-            <Badge variant="outline">{activeSessionsByUser.length}</Badge>
-          </div>
-          <div className="max-h-40 overflow-y-auto space-y-2">
-            {activeSessionsByUser.length === 0 && <div className="text-xs text-muted-foreground">Sem usuarios com sessao ativa.</div>}
-            {activeSessionsByUser.map((item: any) => (
-              <div key={item.userId} className="rounded-md border border-border p-2">
-                <div className="text-xs font-medium">{item.userDisplayName || item.userEmail || item.userId}</div>
-                <div className="text-[11px] text-muted-foreground">{item.sessions.length} sessao(oes) ativa(s)</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="vhub-card p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Sessoes Web Ativas</h3>
-            <Button size="sm" variant="outline" onClick={() => cleanupAuthMut.mutate()} disabled={cleanupAuthMut.isPending} data-testid="button-cleanup-auth-sessions">
-              Limpar Expiradas
-            </Button>
-          </div>
-          <div className="space-y-2">
-            <Select value={forceLogoutUserId} onValueChange={setForceLogoutUserId}>
-              <SelectTrigger data-testid="select-force-logout-user"><SelectValue placeholder="Selecionar usuario para logout forcado" /></SelectTrigger>
-              <SelectContent>
-                {authSessionsSummary.map((item: any) => (
-                  <SelectItem key={item.userId} value={item.userId}>
-                    {(item.userDisplayName || item.userEmail || item.userId) + ` (${item.sessions})`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              className="w-full"
-              variant="destructive"
-              disabled={!forceLogoutUserId || forceLogoutMut.isPending}
-              onClick={() => forceLogoutMut.mutate(forceLogoutUserId)}
-              data-testid="button-force-logout-user"
-            >
-              Logout Forcado do Usuario
-            </Button>
-          </div>
-        </div>
+        <Button onClick={() => setCreateOpen(true)} data-testid="button-create-session">
+          <Plus className="h-4 w-4 mr-1.5" /> Nova Sessao
+        </Button>
       </div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1377,9 +1121,6 @@ function SessionsSection({ createIntent = 0 }: { createIntent?: number }) {
                     <td className="p-3">
                       <div className="font-medium">{sess.title}</div>
                       <div className="text-xs text-muted-foreground">{sess.durationMinutes} min</div>
-                      <div className="text-xs text-muted-foreground md:hidden mt-0.5">
-                        {sess.scheduledAt ? new Date(sess.scheduledAt).toLocaleString() : "—"}
-                      </div>
                     </td>
                     <td className="p-3">
                       <Badge variant={statusColor(sess.status)}>{sess.status}</Badge>
@@ -1517,7 +1258,7 @@ function TakesSection() {
                     <td className="p-3 font-mono text-xs">{take.id.slice(0, 8)}…</td>
                     <td className="p-3">
                       {take.qualityScore !== null ? (
-                        <span className={`font-medium ${take.qualityScore >= 80 ? "text-emerald-400" : take.qualityScore >= 50 ? "text-blue-400" : "text-red-400"}`}>
+                        <span className={`font-medium ${take.qualityScore >= 80 ? "text-emerald-400" : take.qualityScore >= 50 ? "text-amber-400" : "text-red-400"}`}>
                           {Math.round(take.qualityScore)}
                         </span>
                       ) : "—"}
@@ -1742,7 +1483,7 @@ function IntegrationsSection() {
             {storageStatus?.supabaseOk ? (
               <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
             ) : (
-              <AlertCircle className="h-5 w-5 text-blue-400 shrink-0" />
+              <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
             )}
             <div className="min-w-0">
               <p className="text-sm font-medium">
@@ -1865,40 +1606,31 @@ export default function Admin() {
   const { data: stats } = useQuery({
     queryKey: ["/api/admin/stats"],
     queryFn: () => authFetch("/api/admin/stats") as Promise<Record<string, number>>,
+    refetchInterval: 5000,
   });
 
   const pendingCount = stats?.pendingUsers ?? 0;
 
   if (!user) return null;
 
-  if (user.role !== "owner") {
+  if (user.role !== "platform_owner") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background space-y-4">
         <ShieldAlert className="w-12 h-12 text-destructive" />
         <h2 className="text-xl font-bold">Acesso Negado</h2>
         <p className="text-muted-foreground text-sm">Apenas proprietarios da plataforma podem acessar este painel.</p>
-        <Button onClick={() => setLocation("/hub-dub/studios")} variant="outline">Ir para Estudios</Button>
+        <Button onClick={() => setLocation("/studios")} variant="outline">Voltar aos Estudios</Button>
       </div>
     );
   }
 
-  const [sessionCreateIntent, setSessionCreateIntent] = useState(0);
-
   const sectionMap: Record<Section, React.ReactNode> = {
-    overview: (
-      <OverviewSection
-        onNavigateSection={setSection}
-        onCreateSession={() => {
-          setSection("sessions");
-          setSessionCreateIntent((prev) => prev + 1);
-        }}
-      />
-    ),
+    overview: <OverviewSection />,
     pending: <PendingUsersSection />,
     users: <UsersSection />,
     studios: <StudiosSection />,
     productions: <ProductionsSection />,
-    sessions: <SessionsSection createIntent={sessionCreateIntent} />,
+    sessions: <SessionsSection />,
     takes: <TakesSection />,
     logs: <LogsSection />,
     integrations: <IntegrationsSection />,
@@ -1918,7 +1650,7 @@ export default function Admin() {
           {pendingCount > 0 && (
             <button
               onClick={() => setSection("pending")}
-              className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-blue-500/12 text-blue-400 text-xs font-medium border border-blue-500/25"
+              className="mt-2 w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-amber-500/12 text-amber-400 text-xs font-medium border border-amber-500/25"
               data-testid="button-quick-pending"
             >
               <AlertCircle className="h-3.5 w-3.5" />

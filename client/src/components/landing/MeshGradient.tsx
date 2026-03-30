@@ -30,7 +30,7 @@ export function MeshGradient() {
           repeat: Infinity,
           repeatType: "reverse",
         }}
-        className="absolute -top-[10%] -right-[10%] w-[60%] h-[60%] bg-gradient-to-bl from-blue-50/40 to-transparent rounded-full blur-[120px] opacity-40"
+        className="absolute -top-[10%] -right-[10%] w-[60%] h-[60%] bg-gradient-to-bl from-amber-50/40 to-transparent rounded-full blur-[120px] opacity-40"
       />
 
       {/* Bottom Left - Soft White */}

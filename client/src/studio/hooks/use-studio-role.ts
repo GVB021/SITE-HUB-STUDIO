@@ -2,13 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { authFetch } from "@studio/lib/auth-fetch";
 import { useAuth } from "@studio/hooks/use-auth";
 
-export type StudioRole = "owner" | "admin" | "director" | "dubber" | null;
+export type StudioRole = "platform_owner" | "studio_admin" | "diretor" | "engenheiro_audio" | "dublador" | "aluno" | null;
 
 const ROLE_HIERARCHY: Record<string, number> = {
-  owner: 100,
-  admin: 80,
-  director: 60,
-  dubber: 20,
+  platform_owner: 100,
+  studio_admin: 80,
+  diretor: 60,
+  engenheiro_audio: 40,
+  dublador: 20,
+  aluno: 10,
 };
 
 export function useStudioRole(studioId: string) {
@@ -21,39 +23,34 @@ export function useStudioRole(studioId: string) {
     staleTime: 60000,
   });
 
-  const roles: string[] = user?.role === "owner"
-    ? ["owner"]
+  const roles: string[] = user?.role === "platform_owner"
+    ? ["platform_owner"]
     : (data?.roles?.length ? data.roles : (data?.role ? [data.role] : []));
 
-  const role: StudioRole = user?.role === "owner"
-    ? "owner"
-    : (data?.role as any as StudioRole) || null;
+  const role: StudioRole = user?.role === "platform_owner"
+    ? "platform_owner"
+    : (data?.role as StudioRole) || null;
 
   const hasMinRole = (minRole: string): boolean => {
-    const current = role || "dubber";
-    return (ROLE_HIERARCHY[current] ?? 0) >= (ROLE_HIERARCHY[minRole] ?? 0);
+    if (roles.length === 0) return false;
+    return roles.some(r => (ROLE_HIERARCHY[r] ?? 0) >= (ROLE_HIERARCHY[minRole] ?? 999));
   };
 
   const hasRole = (targetRole: string): boolean => {
     return roles.includes(targetRole);
   };
 
-  const isDirector = hasMinRole("director");
-  const isDubber = !isDirector && hasRole("dubber");
-
   return {
     role,
     roles,
-    isLoading: isLoading && user?.role !== "owner",
-    canManageMembers: hasMinRole("admin"),
-    canCreateProductions: hasMinRole("admin"),
-    canCreateSessions: hasMinRole("director"),
-    canEditScripts: hasMinRole("admin"),
-    canManageStaff: hasMinRole("admin"),
-    canViewStaff: hasMinRole("director"),
+    isLoading: isLoading && user?.role !== "platform_owner",
+    canManageMembers: hasMinRole("studio_admin"),
+    canCreateProductions: hasMinRole("studio_admin"),
+    canCreateSessions: hasMinRole("diretor"),
+    canEditScripts: hasMinRole("studio_admin"),
+    canManageStaff: hasMinRole("studio_admin"),
+    canViewStaff: hasMinRole("engenheiro_audio"),
     hasMinRole,
     hasRole,
-    isDirector,
-    isDubber,
   };
 }

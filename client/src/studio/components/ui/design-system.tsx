@@ -128,9 +128,12 @@ export function StatusBadge({ status, className }: { status: string; className?:
 export function RoleBadge({ role, className }: { role: string; className?: string }) {
   const roleMap: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
     owner: { label: "Owner", variant: "default" },
-    admin: { label: "Admin", variant: "default" },
-    director: { label: "Diretor", variant: "outline" },
-    dubber: { label: "Dublador", variant: "outline" },
+    platform_owner: { label: "Platform Owner", variant: "default" },
+    studio_admin: { label: "Admin", variant: "default" },
+    diretor: { label: "Diretor", variant: "secondary" },
+    engenheiro_audio: { label: "Eng. Áudio", variant: "outline" },
+    dublador: { label: "Dublador", variant: "outline" },
+    aluno: { label: "Aluno", variant: "outline" },
   };
 
   const config = roleMap[role] || { label: role, variant: "outline" };
