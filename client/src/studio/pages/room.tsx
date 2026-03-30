@@ -28,6 +28,8 @@ import {
   Download,
   Minimize2,
   Maximize2,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
@@ -59,16 +61,13 @@ import { encodeWav, wavToBlob, getDurationSeconds } from "@studio/lib/audio/wavE
 import { analyzeTakeQuality, type QualityMetrics } from "@studio/lib/audio/qualityAnalysis";
 
 function DailyMeetPanel({ sessionId }: { sessionId: string }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [dailyUrl, setDailyUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    if (!isOpen) return () => { cancelled = true; };
-
     (async () => {
       try {
         setLoading(true);
@@ -87,90 +86,81 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId, isOpen]);
-
-  const panelHeight = isCompact ? "200px" : "min(420px, calc(100vh - 180px))";
+  }, [sessionId]);
 
   return (
-    <div className="fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3" data-testid="panel-daily">
-      {isOpen && (
-        <div
-          className="rounded-2xl overflow-hidden glass-panel shadow-2xl"
-          style={{ width: "min(380px, calc(100vw - 32px))" }}
-        >
-          <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-muted/20">
-            <span className="text-[11px] font-medium flex items-center gap-1.5 text-muted-foreground">
-              <Mic className="w-3 h-3 text-emerald-500" /> Chat de Voz
-            </span>
-            <div className="flex items-center gap-2">
-              {!isCompact && (
-                <button
-                  onClick={() => setIsCompact(true)}
-                  className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                  data-testid="button-compact-daily"
-                >
-                  <Minimize2 className="w-3 h-3" /> Reduzir
-                </button>
-              )}
-              {isCompact && (
-                <button
-                  onClick={() => setIsCompact(false)}
-                  className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                  data-testid="button-expand-daily"
-                >
-                  <Maximize2 className="w-3 h-3" /> Expandir
-                </button>
-              )}
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-[11px] transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                data-testid="button-toggle-daily"
-              >
-                <X className="w-3 h-3" /> Fechar
-              </button>
-            </div>
-          </div>
-          <div style={{ height: panelHeight, overflow: "hidden" }}>
-            {loading && (
-              <div className="flex items-center justify-center text-muted-foreground" style={{ height: panelHeight }}>
-                <span className="text-xs">Criando sala de voz...</span>
-              </div>
-            )}
-            {error && (
-              <div className="flex items-center justify-center text-destructive" style={{ height: panelHeight }}>
-                <span className="text-xs">{error}</span>
-              </div>
-            )}
-            {dailyUrl && !loading && (
-              <iframe
-                src={dailyUrl}
-                allow="camera; microphone; autoplay; display-capture"
-                className="w-full"
-                style={{ height: panelHeight, border: "none" }}
-                data-testid="iframe-daily-meet"
-                title="Daily.co Voice Chat"
-              />
-            )}
-          </div>
+    <div 
+      className="fixed bottom-0 left-0 right-0 z-[50] transition-all duration-300 ease-in-out"
+      style={{
+        height: isExpanded ? '200px' : '70px',
+        background: 'rgba(15,15,30,0.98)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 -4px 24px rgba(0,0,0,0.3)'
+      }}
+      data-testid="panel-daily"
+      role="region"
+      aria-label="Chat de voz"
+    >
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Mic className="w-4 h-4 text-emerald-500" />
+          <span className="text-sm font-medium text-foreground">Chat de Voz</span>
+          {loading && (
+            <span className="text-xs text-muted-foreground ml-2">Carregando...</span>
+          )}
         </div>
-      )}
+        
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5"
+          style={{ color: 'rgba(255,255,255,0.70)' }}
+          data-testid="button-toggle-daily-expand"
+          aria-expanded={isExpanded}
+        >
+          {isExpanded ? (
+            <>
+              <ChevronDown className="w-3.5 h-3.5" />
+              Minimizar
+            </>
+          ) : (
+            <>
+              <ChevronUp className="w-3.5 h-3.5" />
+              Expandir
+            </>
+          )}
+        </button>
+      </div>
 
-      <button
-        type="button"
-        onClick={() => setIsOpen((v) => !v)}
-        className="h-14 w-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-[0.98]"
+      <div 
+        className="overflow-hidden px-4 pb-3"
         style={{
-          background: isOpen ? "rgba(255,255,255,0.10)" : "hsl(var(--primary))",
-          color: isOpen ? "rgba(255,255,255,0.80)" : "hsl(var(--primary-foreground))",
-          border: "1px solid rgba(255,255,255,0.12)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
+          height: isExpanded ? '130px' : '0px',
+          visibility: isExpanded ? 'visible' : 'hidden'
         }}
-        aria-label={isOpen ? "Fechar chat de voz" : "Abrir chat de voz"}
-        data-testid="button-floating-voice-chat"
       >
-        {isOpen ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-      </button>
+        {loading && (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            <span className="text-xs">Criando sala de voz...</span>
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center justify-center h-full text-destructive">
+            <span className="text-xs">{error}</span>
+          </div>
+        )}
+        {dailyUrl && !loading && (
+          <iframe
+            src={dailyUrl}
+            allow="camera; microphone; autoplay; display-capture"
+            className="w-full h-full rounded-lg"
+            style={{ border: 'none' }}
+            data-testid="iframe-daily-meet"
+            title="Daily.co Voice Chat"
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -2870,7 +2860,7 @@ export default function RecordingRoom() {
           <div
             ref={scriptViewportRef}
             className="flex-1 overflow-y-auto py-3 px-4 min-h-0 relative"
-            style={{ scrollBehavior: "auto", WebkitOverflowScrolling: "touch" as any }}
+            style={{ scrollBehavior: "auto", WebkitOverflowScrolling: "touch" as any, paddingBottom: "90px" }}
             onScroll={handleScriptViewportScroll}
             onWheelCapture={markScriptUserScrollIntent}
             onTouchMoveCapture={markScriptUserScrollIntent}
