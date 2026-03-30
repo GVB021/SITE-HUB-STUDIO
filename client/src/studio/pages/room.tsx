@@ -95,7 +95,7 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
         isExpanded ? "fixed bottom-0 left-0 right-0 z-[50]" : "shrink-0"
       )}
       style={{
-        height: isExpanded ? '200px' : '70px',
+        height: isExpanded ? '1000px' : '70px',
         background: 'rgba(15,15,30,0.98)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -139,7 +139,7 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
       <div 
         className="overflow-hidden px-4 pb-3"
         style={{
-          height: isExpanded ? '130px' : '0px',
+          height: isExpanded ? '930px' : '0px',
           visibility: isExpanded ? 'visible' : 'hidden'
         }}
       >
