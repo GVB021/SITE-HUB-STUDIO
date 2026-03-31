@@ -992,8 +992,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const userRole = (req.user as any)?.role;
       const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
 
+      logger.info("[Approve Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
+
       if (!isDirector) {
-        return res.status(403).json({ error: "Only directors can approve takes" });
+        return res.status(403).json({ error: "Only directors can approve takes", debug: { role, userRole } });
       }
 
       const [updated] = await db.update(takes)
@@ -1059,10 +1061,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!feedback || !feedback.trim()) {
-        return res.status(400).json({ error: "Feedback is required when rejecting a take" });
-      }
-
       const [take] = await db.select().from(takes).where(eq(takes.id, takeId));
       if (!take) {
         return res.status(404).json({ error: "Take not found" });
@@ -1079,8 +1077,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const userRole = (req.user as any)?.role;
       const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
 
+      logger.info("[Reject Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
+
       if (!isDirector) {
-        return res.status(403).json({ error: "Only directors can reject takes" });
+        return res.status(403).json({ error: "Only directors can reject takes", debug: { role, userRole } });
       }
 
       const [updated] = await db.update(takes)

@@ -3358,9 +3358,15 @@ export default function RecordingRoom() {
                   approvalAudioRef.current = audio;
                   
                   const endTime = pendingApprovalTake.startTimeSeconds + pendingApprovalTake.durationSeconds;
+                  let timeoutId: NodeJS.Timeout | null = null;
+                  let hasCleanedUp = false;
                   
                   // Cleanup function
                   const cleanup = () => {
+                    if (hasCleanedUp) return;
+                    hasCleanedUp = true;
+                    
+                    if (timeoutId) clearTimeout(timeoutId);
                     video.removeEventListener('play', syncPlay);
                     video.removeEventListener('pause', syncPause);
                     video.removeEventListener('seeked', syncSeek);
@@ -3407,6 +3413,14 @@ export default function RecordingRoom() {
                   video.addEventListener('timeupdate', checkEnd);
                   
                   audio.onended = cleanup;
+                  
+                  // Fallback: Force pause after take duration (with 100ms buffer)
+                  timeoutId = setTimeout(() => {
+                    if (!hasCleanedUp && video.currentTime >= endTime - 0.1) {
+                      video.pause();
+                      cleanup();
+                    }
+                  }, pendingApprovalTake.durationSeconds * 1000 + 200);
                   
                   // Start playback
                   video.play().then(() => {
