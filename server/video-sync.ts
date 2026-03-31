@@ -126,14 +126,17 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
   // Try cookie-based auth first
   let userId = await getAuthenticatedUserId(req);
   
+  // Log auth attempt
+  console.log('[WebSocket Auth] Attempting auth for session:', sessionId, 'Cookie userId:', userId, 'Query userId:', queryUserId);
+  
   // Fallback to query param userId if cookie auth fails
   if (!userId && queryUserId) {
-    console.log('[WebSocket] Using query param userId as fallback:', queryUserId);
+    console.log('[WebSocket Auth] Using query param userId as fallback:', queryUserId);
     userId = queryUserId;
   }
   
   if (!userId) {
-    console.log('[WebSocket] No userId found - cookie or query param required');
+    console.log('[WebSocket Auth] FAILED: No userId found - cookie or query param required');
     return null;
   }
 
@@ -142,7 +145,12 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
     [userId],
   );
   const userRow = ures.rows?.[0];
-  if (!userRow?.id) return null;
+  if (!userRow?.id) {
+    console.log('[WebSocket Auth] FAILED: User not found in database for userId:', userId);
+    return null;
+  }
+  
+  console.log('[WebSocket Auth] User found:', userRow.email, 'Platform role:', userRow.role);
 
   const platformRole = normalizePlatformRole(userRow.role);
   const name = String(userRow.display_name || userRow.full_name || userRow.email || "Usuario");
@@ -152,9 +160,15 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
     [sessionId, userId],
   );
   const participantRole = pres.rows?.[0]?.role;
+  console.log('[WebSocket Auth] Participant lookup result for session', sessionId, ':', participantRole);
+  
   const studioRole = participantRole ? normalizeStudioRole(participantRole) : platformRole === "platform_owner" ? "platform_owner" : null;
-  if (!studioRole) return null;
+  if (!studioRole) {
+    console.log('[WebSocket Auth] FAILED: No studioRole - user is not a participant and not platform_owner. Platform role:', platformRole);
+    return null;
+  }
 
+  console.log('[WebSocket Auth] SUCCESS:', name, '| Studio role:', studioRole);
   return { userId, role: studioRole, name, platformRole };
 }
 
