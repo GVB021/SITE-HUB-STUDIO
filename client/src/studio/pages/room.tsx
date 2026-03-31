@@ -2352,18 +2352,15 @@ export default function RecordingRoom() {
                     ? presenceUsers
                     : (session?.participants || []).map((p: any) => ({ userId: p.userId, name: p.user?.fullName || p.user?.displayName || p.user?.email || "Usuario", role: p.role }))
                   );
-                  const eligible = roster.filter((p: any) => {
-                    const r = String(p.role || "").toLowerCase();
-                    return r === "aluno" || r === "dublador" || r === "voice_actor" || r === "student";
-                  });
-                  if (!eligible.length) {
+                  // Show ALL connected users - no role filter
+                  if (!roster.length) {
                     return (
                       <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
-                        Nenhum aluno ou dublador conectado
+                        Nenhum usuario conectado
                       </div>
                     );
                   }
-                  return eligible.map((p: any) => {
+                  return roster.map((p: any) => {
                     const checked = pendingTextControllerUserIds.has(p.userId);
                     return (
                       <label
