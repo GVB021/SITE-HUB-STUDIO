@@ -4,7 +4,6 @@ import { AppSidebar } from "./app-sidebar";
 import { useAuth } from "@studio/hooks/use-auth";
 import { ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
-import { ModeToggle } from "../mode-toggle";
 
 interface StudioLayoutProps {
   studioId: string;
@@ -36,8 +35,6 @@ export function StudioLayout({ studioId, children }: StudioLayoutProps) {
             <div className="flex-1" />
             
             <div className="flex items-center gap-2">
-              <ModeToggle />
-              
               {user?.role === "platform_owner" && (
                 <Link href="/hub-dub/admin">
                   <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-full border border-border/60 bg-card/60 hover:bg-card" data-testid="button-header-admin">
