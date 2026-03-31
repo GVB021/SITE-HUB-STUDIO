@@ -122,9 +122,20 @@ async function getAuthenticatedUserId(req: any) {
   return typeof userId === "string" && userId ? userId : null;
 }
 
-async function getWsIdentity(sessionId: string, req: any) {
-  const userId = await getAuthenticatedUserId(req);
-  if (!userId) return null;
+async function getWsIdentity(sessionId: string, req: any, queryUserId?: string | null) {
+  // Try cookie-based auth first
+  let userId = await getAuthenticatedUserId(req);
+  
+  // Fallback to query param userId if cookie auth fails
+  if (!userId && queryUserId) {
+    console.log('[WebSocket] Using query param userId as fallback:', queryUserId);
+    userId = queryUserId;
+  }
+  
+  if (!userId) {
+    console.log('[WebSocket] No userId found - cookie or query param required');
+    return null;
+  }
 
   const ures = await pool.query(
     "select id, role, full_name, display_name, email from users where id = $1 limit 1",
@@ -161,11 +172,14 @@ export function setupVideoSync(httpServer: Server) {
         return;
       }
 
-      const identity = await getWsIdentity(sessionId, req);
+      const identity = await getWsIdentity(sessionId, req, url.searchParams.get("userId"));
       if (!identity) {
+        console.log('[WebSocket] Auth failed for session:', sessionId, '- closing connection');
         ws.close(1008, "unauthorized");
         return;
       }
+      
+      console.log('[WebSocket] User connected:', identity.name, '| Role:', identity.role, '| Session:', sessionId);
 
       ws.userId = identity.userId;
       ws.role = identity.role;

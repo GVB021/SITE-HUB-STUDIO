@@ -1013,6 +1013,7 @@ export default function RecordingRoom() {
 
   const [controlMenuOpen, setControlMenuOpen] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState<Array<{ userId: string; name: string; role?: string }>>([]);
+  const [wsConnected, setWsConnected] = useState(false);
   const [textControllerUserIds, setTextControllerUserIds] = useState<Set<string>>(new Set());
   const [textControlPopupOpen, setTextControlPopupOpen] = useState(false);
   const [pendingTextControllerUserIds, setPendingTextControllerUserIds] = useState<Set<string>>(new Set());
@@ -1113,6 +1114,8 @@ export default function RecordingRoom() {
     if (!sessionId || !user?.id) return;
 
     let destroyed = false;
+    let reconnectDelay = 1000;
+    const maxReconnectDelay = 30000;
 
     const connect = () => {
       if (destroyed) return;
@@ -1121,6 +1124,12 @@ export default function RecordingRoom() {
       const name = encodeURIComponent(String((user as any)?.fullName || (user as any)?.displayName || (user as any)?.email || "Usuario"));
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/video-sync?sessionId=${sessionId}&userId=${encodeURIComponent(user.id)}&role=${role}&name=${name}`);
       wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('[WebSocket] Conectado com sucesso');
+        setWsConnected(true);
+        reconnectDelay = 1000; // Reset delay on success
+      };
 
       ws.onmessage = (event) => {
         try {
@@ -1273,13 +1282,19 @@ export default function RecordingRoom() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log('[WebSocket] Desconectado. Código:', event.code, 'Razão:', event.reason);
+        setWsConnected(false);
         if (!destroyed) {
-          wsReconnectTimer.current = setTimeout(connect, 3000);
+          console.log(`[WebSocket] Reconectando em ${reconnectDelay}ms...`);
+          wsReconnectTimer.current = setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(maxReconnectDelay, reconnectDelay * 1.5); // Exponential backoff
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = (error) => {
+        console.error('[WebSocket] Erro na conexão:', error);
+        setWsConnected(false);
         ws.close();
       };
     };
@@ -2472,6 +2487,19 @@ export default function RecordingRoom() {
           {micReady && (
             <span className="flex items-center gap-1" style={{ color: "hsl(160 84% 60%)" }}>
               <Mic className="w-3.5 h-3.5" /> <span className="hidden sm:inline">48kHz / 24bit</span>
+            </span>
+          )}
+          <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
+          {/* WebSocket Connection Status */}
+          {wsConnected ? (
+            <span className="flex items-center gap-1" style={{ color: "hsl(160 84% 60%)" }} title="Sincronização ativa">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="hidden sm:inline text-[10px]">Sinc</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1" style={{ color: "hsl(0 72% 65%)" }} title="Desconectado - sincronização não funciona">
+              <span className="w-2 h-2 rounded-full bg-red-500" />
+              <span className="hidden sm:inline text-[10px]">Offline</span>
             </span>
           )}
           <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
