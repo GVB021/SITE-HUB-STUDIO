@@ -2455,7 +2455,7 @@ export default function RecordingRoom() {
               <Circle className="w-2 h-2 fill-red-500 animate-pulse" /> REC
             </span>
           )}
-          {recordingStatus === "recorded" && (
+          {recordingStatus === "recorded" && isPrivileged && (
             <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(217 91% 60%)", background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)" }}>
               <AlertCircle className="w-3 h-3" /> Nao salvo
             </span>
