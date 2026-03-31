@@ -36,7 +36,6 @@ const lazyWithRetry = <T extends ComponentType<any>>(importer: () => Promise<{ d
   });
 
 const NotFound = lazyWithRetry(() => import("@/pages/not-found"));
-const Landing = lazyWithRetry(() => import("@/pages/landing"));
 const HubSchool = lazyWithRetry(() => import("@/pages/hubschool"));
 const HubSchoolCourse = lazyWithRetry(() => import("@/pages/hubschool-course"));
 const HubAlign = lazyWithRetry(() => import("@/pages/hub-align"));
@@ -105,14 +104,7 @@ function Router() {
       <AnimatePresence mode="wait">
         <Switch location={location} key={location}>
           <Route path="/">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0, transition: { duration: 0.25 } }}
-              className="w-full min-h-screen bg-background"
-            >
-              <Landing />
-            </motion.div>
+            <Redirect to="/hub-dub" replace />
           </Route>
 
           {/* HUBDUB-STUDIO Fusion Routes */}

@@ -11,7 +11,6 @@ import { lazy, Suspense } from "react";
 import { ErrorBoundary } from "@studio/components/ui/error-boundary";
 
 const NotFound = lazy(() => import("@studio/pages/not-found"));
-const Landing = lazy(() => import("@studio/pages/landing"));
 const Login = lazy(() => import("@studio/pages/login"));
 const SecretariaLogin = lazy(() => import("@studio/pages/secretaria-login"));
 const StudioSelect = lazy(() => import("@studio/pages/studio-select"));
@@ -81,7 +80,7 @@ function StudioSelectRoute() {
   return <StudioSelect />;
 }
 
-function LandingRoute() {
+function HomeRoute() {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
@@ -142,7 +141,7 @@ function Router() {
       </div>
     }>
       <Switch>
-        <Route path="/hub-dub" component={LandingRoute} />
+        <Route path="/hub-dub" component={HomeRoute} />
         <Route path="/hub-dub/login" component={Login} />
         <Route path="/hub-dub/secretaria/login" component={SecretariaLogin} />
         <Route path="/hub-dub/studios" component={StudioSelectRoute} />
