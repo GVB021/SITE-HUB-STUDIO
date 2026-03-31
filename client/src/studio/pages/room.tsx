@@ -2753,7 +2753,7 @@ export default function RecordingRoom() {
                 >
                   <Square className="w-5 h-5 text-white fill-white" />
                 </button>
-              ) : (
+              ) : isPrivileged ? (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handlePreview}
@@ -2783,6 +2783,10 @@ export default function RecordingRoom() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Gravado</span>
                 </div>
               )}
 
