@@ -41,7 +41,24 @@ const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "integrations", label: "API e Integracoes", icon: KeyRound },
 ];
 
-const ROLES = ["platform_owner", "user", "aluno"];
+const ROLES = [
+  "platform_owner",
+  "admin",
+  "director",
+  "diretor",
+  "producer",
+  "produtor",
+  "studio_admin",
+  "teacher",
+  "engineer",
+  "engenheiro_audio",
+  "audio_engineer",
+  "voice_actor",
+  "dublador",
+  "student",
+  "aluno",
+  "user",
+];
 
 const ALL_STUDIO_ROLES = [
   { value: "studio_admin", label: "Admin Estudio" },
