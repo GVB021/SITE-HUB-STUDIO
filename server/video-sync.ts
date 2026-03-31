@@ -155,11 +155,29 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
   const platformRole = normalizePlatformRole(userRow.role);
   const name = String(userRow.display_name || userRow.full_name || userRow.email || "Usuario");
 
+  // First try: check if user is a formal session participant
   const pres = await pool.query(
     "select role from session_participants where session_id = $1 and user_id = $2 limit 1",
     [sessionId, userId],
   );
-  const participantRole = pres.rows?.[0]?.role;
+  let participantRole = pres.rows?.[0]?.role;
+  
+  // Second try: if not a participant, check if user has access to the session's production
+  if (!participantRole) {
+    console.log('[WebSocket Auth] User not a formal participant, checking production access...');
+    const prodRes = await pool.query(
+      `select p.role from production_access p
+       join sessions s on s.production_id = p.production_id
+       where s.id = $1 and p.user_id = $2
+       limit 1`,
+      [sessionId, userId],
+    );
+    if (prodRes.rows?.[0]?.role) {
+      participantRole = prodRes.rows[0].role;
+      console.log('[WebSocket Auth] Found production access with role:', participantRole);
+    }
+  }
+  
   console.log('[WebSocket Auth] Participant lookup result for session', sessionId, ':', participantRole);
   
   const studioRole = participantRole ? normalizeStudioRole(participantRole) : platformRole === "platform_owner" ? "platform_owner" : null;
