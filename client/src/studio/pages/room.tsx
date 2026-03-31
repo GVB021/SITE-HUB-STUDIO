@@ -2301,8 +2301,8 @@ export default function RecordingRoom() {
 
       {textControlPopupOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid hsl(var(--border))", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
-            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid hsl(var(--border) / 0.8)" }}>
+          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] max-h-[85vh] flex flex-col" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid hsl(var(--border))", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: "1px solid hsl(var(--border) / 0.8)" }}>
               <span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Controle de Texto</span>
               <button
                 onClick={() => setTextControlPopupOpen(false)}
@@ -2313,7 +2313,7 @@ export default function RecordingRoom() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="px-6 py-5">
+            <div className="px-6 py-5 overflow-y-auto" style={{ maxHeight: "calc(85vh - 140px)" }}>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>Autorizacao (Alunos / Dubladores)</span>
                 <button
@@ -2351,7 +2351,7 @@ export default function RecordingRoom() {
                 </span>
               </div>
 
-              <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
+              <div className="flex flex-col gap-2 pr-1">
                 {(() => {
                   const roster = (presenceUsers.length
                     ? presenceUsers
@@ -2410,28 +2410,28 @@ export default function RecordingRoom() {
                   });
                 })()}
               </div>
+            </div>
 
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => setTextControlPopupOpen(false)}
-                  className="vhub-btn-xs vhub-btn-secondary"
-                  data-testid="button-cancel-text-control"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    const targetUserIds = Array.from(pendingTextControllerUserIds);
-                    setTextControllerUserIds(new Set(targetUserIds));
-                    emitTextControlEvent("text-control:set-controllers", { targetUserIds });
-                    setTextControlPopupOpen(false);
-                  }}
-                  className="vhub-btn-xs vhub-btn-primary"
-                  data-testid="button-apply-text-control"
-                >
-                  Aplicar
-                </button>
-              </div>
+            <div className="flex justify-end gap-2 px-6 py-4 shrink-0" style={{ borderTop: "1px solid hsl(var(--border) / 0.8)" }}>
+              <button
+                onClick={() => setTextControlPopupOpen(false)}
+                className="vhub-btn-xs vhub-btn-secondary"
+                data-testid="button-cancel-text-control"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const targetUserIds = Array.from(pendingTextControllerUserIds);
+                  setTextControllerUserIds(new Set(targetUserIds));
+                  emitTextControlEvent("text-control:set-controllers", { targetUserIds });
+                  setTextControlPopupOpen(false);
+                }}
+                className="vhub-btn-xs vhub-btn-primary"
+                data-testid="button-apply-text-control"
+              >
+                Aplicar
+              </button>
             </div>
           </div>
         </div>
