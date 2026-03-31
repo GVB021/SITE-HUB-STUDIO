@@ -26,11 +26,8 @@ import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { format } from "date-fns";
 
 const STUDIO_ROLES = [
-  { value: "studio_admin", label: pt.roles.studio_admin },
   { value: "diretor", label: pt.roles.diretor },
-  { value: "engenheiro_audio", label: pt.roles.engenheiro_audio },
   { value: "dublador", label: pt.roles.dublador },
-  { value: "aluno", label: "Aluno" },
 ];
 
 const PRODUCTION_STATUSES = [

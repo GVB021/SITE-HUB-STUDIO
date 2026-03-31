@@ -392,7 +392,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/profile", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.patch("/api/studios/:studioId/profile", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const parsed = studioProfilePatchSchema.parse(req.body || {});
       const profile = await storage.upsertStudioProfile(req.params.studioId, parsed.data || {});
@@ -489,9 +489,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(members);
   });
 
-  app.post("/api/studios/:studioId/members/:membershipId/approve", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/members/:membershipId/approve", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
-      const validRoles = z.enum(["studio_admin", "diretor", "dublador", "engenheiro_audio", "aluno"]);
+      const validRoles = z.enum(["diretor", "dublador"]);
       const body = z.object({
         role: validRoles.optional(),
         roles: z.array(validRoles).optional(),
@@ -519,7 +519,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/studios/:studioId/members/:membershipId/reject", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/members/:membershipId/reject", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     const membership = await storage.getMembership(req.params.membershipId);
     if (!membership || membership.studioId !== req.params.studioId) {
       return res.status(404).json({ message: "Membro nao encontrado" });
@@ -538,7 +538,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // MEMBERS - UPDATE ROLES
-  app.put("/api/studios/:studioId/members/:membershipId/roles", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.put("/api/studios/:studioId/members/:membershipId/roles", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const { roles } = req.body;
       if (!Array.isArray(roles) || roles.length === 0) {
@@ -557,7 +557,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // MEMBERS - REMOVE
-  app.delete("/api/studios/:studioId/members/:membershipId", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.delete("/api/studios/:studioId/members/:membershipId", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const membership = await storage.getMembership(req.params.membershipId);
       if (!membership || membership.studioId !== req.params.studioId) {
@@ -609,7 +609,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // STUDIO PENDING MEMBERS
-  app.get("/api/studios/:studioId/pending-members", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.get("/api/studios/:studioId/pending-members", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const pending = await storage.getPendingMembersForStudio(req.params.studioId);
       res.status(200).json(pending);
@@ -631,7 +631,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(prod);
   });
 
-  app.post("/api/studios/:studioId/productions", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/productions", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const input = insertProductionSchema.parse({ ...req.body, studioId: req.params.studioId });
       const prod = await storage.createProduction(input);
@@ -641,7 +641,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.patch("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const prod = await storage.getProduction(req.params.id);
       if (!prod) return res.status(404).json({ message: "Producao nao encontrada" });
@@ -653,7 +653,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.delete("/api/studios/:studioId/productions/:id", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const prod = await storage.getProduction(req.params.id);
       if (!prod) return res.status(404).json({ message: "Producao nao encontrada" });
@@ -712,7 +712,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(session);
   });
 
-  app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
+  app.post("/api/studios/:studioId/sessions", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
       const settings = await storage.getAllSettings();
@@ -757,14 +757,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
+  app.delete("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session || session.studioId !== req.params.studioId) return res.status(404).json({ message: "Sessao nao encontrada" });
       const userId = (req.user as any)?.id;
       const userRole = (req.user as any)?.role;
       const studioRole = (req as any).studioRole;
-      const isAdmin = userRole === "platform_owner" || studioRole === "studio_admin";
+      const isAdmin = userRole === "platform_owner" || studioRole === "diretor";
       if (!isAdmin && session.createdBy !== userId) {
         return res.status(403).json({ message: "Voce so pode excluir sessoes criadas por voce" });
       }
@@ -775,7 +775,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("studio_admin", "diretor"), async (req, res) => {
+  app.patch("/api/studios/:studioId/sessions/:id", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session || session.studioId !== req.params.studioId) return res.status(404).json({ message: "Sessao nao encontrada" });
@@ -1415,7 +1415,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(staffList);
   });
 
-  app.post("/api/studios/:studioId/staff", requireAuth, requireStudioRole("studio_admin"), async (req, res) => {
+  app.post("/api/studios/:studioId/staff", requireAuth, requireStudioRole("diretor"), async (req, res) => {
     try {
       const newStaff = await storage.createStaff({ ...req.body, studioId: req.params.studioId });
       res.status(201).json(newStaff);

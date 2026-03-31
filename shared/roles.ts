@@ -1,49 +1,45 @@
-export const PLATFORM_ROLES = ["platform_owner", "user"] as const;
+export const PLATFORM_ROLES = ["platform_owner", "diretor", "dublador"] as const;
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
 export const STUDIO_ROLES = [
   "platform_owner",
-  "studio_admin",
   "diretor",
-  "engenheiro_audio",
   "dublador",
-  "aluno",
 ] as const;
 export type StudioRole = (typeof STUDIO_ROLES)[number];
 
 export const STUDIO_ROLE_HIERARCHY: Record<StudioRole, number> = {
   platform_owner: 100,
-  studio_admin: 80,
   diretor: 60,
-  engenheiro_audio: 40,
   dublador: 20,
-  aluno: 10,
 };
 
 const PLATFORM_ROLE_ALIASES: Record<string, PlatformRole> = {
   platformowner: "platform_owner",
   platform_owner: "platform_owner",
   owner: "platform_owner",
-  user: "user",
+  diretor: "diretor",
+  director: "diretor",
+  teacher: "diretor",
+  dublador: "dublador",
+  actor: "dublador",
+  voice_actor: "dublador",
+  student: "dublador",
+  aluno: "dublador",
+  user: "dublador",
 };
 
 const STUDIO_ROLE_ALIASES: Record<string, StudioRole> = {
   platformowner: "platform_owner",
   platform_owner: "platform_owner",
-  studio_admin: "studio_admin",
-  adminstudio: "studio_admin",
   diretor: "diretor",
   director: "diretor",
   teacher: "diretor",
-  engenheiro_audio: "engenheiro_audio",
-  engenheriodeaudio: "engenheiro_audio",
-  audio_engineer: "engenheiro_audio",
-  engineer: "engenheiro_audio",
   dublador: "dublador",
   actor: "dublador",
   voice_actor: "dublador",
-  aluno: "aluno",
-  student: "aluno",
+  student: "dublador",
+  aluno: "dublador",
 };
 
 export function normalizePlatformRole(role: unknown): PlatformRole {
@@ -53,11 +49,11 @@ export function normalizePlatformRole(role: unknown): PlatformRole {
 
 export function normalizeStudioRole(role: unknown): StudioRole {
   const key = String(role || "").trim().toLowerCase().replace(/\s+/g, "_");
-  return STUDIO_ROLE_ALIASES[key] ?? "aluno";
+  return STUDIO_ROLE_ALIASES[key] ?? "dublador";
 }
 
 export function getHighestStudioRole(roles: Array<string | null | undefined>): StudioRole {
-  let best: StudioRole = "aluno";
+  let best: StudioRole = "dublador";
   let bestLevel = STUDIO_ROLE_HIERARCHY[best];
   for (const r of roles) {
     const nr = normalizeStudioRole(r);
@@ -77,5 +73,5 @@ export function hasMinStudioRole(role: unknown, minRole: StudioRole) {
 
 export function isPrivilegedStudioRole(role: unknown) {
   const r = normalizeStudioRole(role);
-  return r === "platform_owner" || r === "studio_admin" || hasMinStudioRole(r, "engenheiro_audio");
+  return r === "platform_owner" || r === "diretor";
 }

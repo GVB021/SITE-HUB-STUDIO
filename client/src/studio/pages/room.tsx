@@ -1033,35 +1033,19 @@ export default function RecordingRoom() {
 
   const isPrivileged = useMemo(() => {
     const userPlatformRole = String(user?.role || "").toLowerCase();
-    console.log('[DEBUG] isPrivileged check:', {
-      userPlatformRole,
-      myStudioRole,
-      userRole: user?.role,
-      userId: user?.id,
-      sessionParticipants: session?.participants?.map((p: any) => ({ id: p.userId, role: p.role }))
-    });
+    // Platform owner always has full control
     if (userPlatformRole === "platform_owner") return true;
-    const privilegedUserRoles = new Set(["director", "diretor", "studio_admin", "admin", "owner", "teacher", "producer", "produtor", "engineer", "engenheiro_audio", "audio_engineer"]);
-    if (privilegedUserRoles.has(userPlatformRole)) return true;
-    const privilegedRoles = new Set([
-      "studio_admin",
-      "diretor",
-      "engenheiro_audio",
-      "owner",
-      "director",
-      "audio_engineer",
-      "engineer",
-      "admin",
-    ]);
-    const result = privilegedRoles.has(myStudioRole);
-    console.log('[DEBUG] isPrivileged result:', result, 'myStudioRole:', myStudioRole);
-    return result;
+    // Director (diretor) has full studio control
+    if (userPlatformRole === "diretor") return true;
+    // Check session participant role for director
+    const directorRoles = new Set(["diretor"]);
+    return directorRoles.has(myStudioRole);
   }, [user?.role, myStudioRole]);
 
   const isDirector = useMemo(() => {
     if (user?.role === "platform_owner") return true;
-    const directorRoles = new Set(["diretor", "director", "teacher"]);
-    return directorRoles.has(myStudioRole);
+    if (user?.role === "diretor") return true;
+    return myStudioRole === "diretor";
   }, [myStudioRole, user?.role]);
 
   const canControl = useMemo(() => {

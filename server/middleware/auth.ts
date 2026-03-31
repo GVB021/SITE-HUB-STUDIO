@@ -44,10 +44,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = req.user as any;
-  if (normalizePlatformRole(user?.role) !== "platform_owner") {
-    logger.warn("Unauthorized admin access attempt", { userId: user?.id, path: req.path });
-    return res.status(403).json({ message: "Forbidden: platform_owner role required" });
+  // Only allow specific email as platform_owner
+  if (user?.email?.toLowerCase() !== "borbaggabriel@gmail.com") {
+    logger.warn("Unauthorized admin access attempt", { userId: user?.id, email: user?.email, path: req.path });
+    return res.status(403).json({ message: "Forbidden: platform_owner access required" });
   }
+  // Force the role to platform_owner for this specific user
+  user.role = "platform_owner";
   next();
 }
 

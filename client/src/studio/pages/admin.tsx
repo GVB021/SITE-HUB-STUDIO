@@ -43,34 +43,17 @@ const NAV: { id: Section; label: string; icon: React.ElementType }[] = [
 
 const ROLES = [
   "platform_owner",
-  "admin",
-  "director",
   "diretor",
-  "producer",
-  "produtor",
-  "studio_admin",
-  "teacher",
-  "engineer",
-  "engenheiro_audio",
-  "audio_engineer",
-  "voice_actor",
   "dublador",
-  "student",
-  "aluno",
-  "user",
 ];
 
 const ALL_STUDIO_ROLES = [
-  { value: "studio_admin", label: "Admin Estudio" },
   { value: "diretor", label: "Diretor" },
-  { value: "engenheiro_audio", label: "Engenheiro de Audio" },
   { value: "dublador", label: "Dublador" },
-  { value: "aluno", label: "Aluno" },
 ];
 
 function roleBadgeVariant(role: string): "destructive" | "default" | "secondary" | "outline" {
   if (role === "platform_owner") return "destructive";
-  if (role === "studio_admin") return "default";
   if (role === "diretor") return "secondary";
   return "outline";
 }
