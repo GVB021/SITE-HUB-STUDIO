@@ -97,7 +97,7 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
         background: 'rgba(15,15,30,0.98)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
+        borderTop: '1px solid hsl(var(--border) / 0.8)',
         boxShadow: isExpanded ? '0 -4px 24px rgba(0,0,0,0.3)' : 'none'
       }}
       data-testid="panel-daily"
@@ -116,7 +116,7 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
         <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5"
-          style={{ color: 'rgba(255,255,255,0.70)' }}
+          style={{ color: 'hsl(var(--foreground) / 0.70)' }}
           data-testid="button-toggle-daily-expand"
           aria-expanded={isExpanded}
         >
@@ -232,7 +232,7 @@ function CountdownOverlay({ count }: { count: number }) {
         <div className="w-24 h-24 rounded-full flex items-center justify-center" style={{ border: "4px solid rgba(239,68,68,0.4)", boxShadow: "0 0 40px rgba(239,68,68,0.3), inset 0 0 20px rgba(239,68,68,0.1)" }}>
           <span className="text-6xl font-light font-mono tabular-nums" style={{ color: "hsl(0 72% 65%)", textShadow: "0 0 20px rgba(239,68,68,0.5)" }}>{count}</span>
         </div>
-        <span className="text-xs uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.45)" }}>Gravando em...</span>
+        <span className="text-xs uppercase tracking-widest" style={{ color: "hsl(var(--muted-foreground))" }}>Gravando em...</span>
       </div>
     </div>
   );
@@ -2097,7 +2097,7 @@ export default function RecordingRoom() {
             <div className="px-6 py-4 flex flex-col gap-2">
               {(Object.keys(SHORTCUT_LABELS) as Array<keyof Shortcuts>).map((key) => (
                 <div key={key} className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: "rgba(255,255,255,0.70)" }}>{SHORTCUT_LABELS[key]}</span>
+                  <span className="text-sm" style={{ color: "hsl(var(--foreground) / 0.70)" }}>{SHORTCUT_LABELS[key]}</span>
                   <button
                     onClick={() => setListeningFor(key)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono min-w-[80px] text-center transition-all ${
@@ -2107,7 +2107,7 @@ export default function RecordingRoom() {
                     }`}
                     style={listeningFor === key
                       ? { border: "1px solid hsl(var(--primary))", background: "hsl(var(--primary) / 0.12)", color: "hsl(var(--primary))" }
-                      : { border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.70)" }
+                      : { border: "1px solid hsl(var(--border))", background: "rgba(255,255,255,0.05)", color: "hsl(var(--foreground) / 0.70)" }
                     }
                     data-testid={`shortcut-btn-${key}`}
                   >
@@ -2116,10 +2116,10 @@ export default function RecordingRoom() {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 flex justify-between gap-3" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <div className="px-6 py-4 flex justify-between gap-3" style={{ borderTop: "1px solid hsl(var(--border) / 0.8)" }}>
               <button
                 onClick={() => { setPendingShortcuts(DEFAULT_SHORTCUTS); setListeningFor(null); }}
-                className="text-xs transition-colors" style={{ color: "rgba(255,255,255,0.40)" }}
+                className="text-xs transition-colors" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}
                 data-testid="button-reset-shortcuts"
               >
                 Restaurar padroes
@@ -2172,9 +2172,9 @@ export default function RecordingRoom() {
 
       {takesPopupOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
-            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              <span className="text-sm font-semibold" style={{ color: "hsl(210 40% 96%)" }}>Takes da Sessao</span>
+          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid hsl(var(--border))", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid hsl(var(--border) / 0.8)" }}>
+              <span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Takes da Sessao</span>
               <button
                 onClick={() => {
                   setTakesPopupOpen(false);
@@ -2185,7 +2185,7 @@ export default function RecordingRoom() {
                   setTakePreviewId(null);
                 }}
                 className="transition-colors"
-                style={{ color: "rgba(255,255,255,0.40)" }}
+                style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}
                 data-testid="button-close-takes-popup"
               >
                 <X className="w-4 h-4" />
@@ -2212,32 +2212,32 @@ export default function RecordingRoom() {
                           audio.play().catch(() => {});
                         }}
                         className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
-                        style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.75)" }}
+                        style={{ background: "rgba(255,255,255,0.06)", color: "hsl(var(--foreground) / 0.75)" }}
                         data-testid={`button-play-take-${take.id}`}
                       >
                         {takePreviewId === take.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                       </button>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate" style={{ color: "rgba(255,255,255,0.85)" }}>
+                          <span className="text-sm font-medium truncate" style={{ color: "hsl(var(--foreground) / 0.85)" }}>
                             {take.characterName || "Take"}
                           </span>
-                          <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>—</span>
-                          <span className="text-xs truncate" style={{ color: "rgba(255,255,255,0.65)" }}>
+                          <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>—</span>
+                          <span className="text-xs truncate" style={{ color: "hsl(var(--foreground) / 0.65)" }}>
                             {take.voiceActorName || take.userName || "Dublador"}
                           </span>
-                          <span className="ml-auto text-xs font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.45)" }}>
+                          <span className="ml-auto text-xs font-mono tabular-nums" style={{ color: "hsl(var(--muted-foreground))" }}>
                             {take.durationSeconds ? `${Number(take.durationSeconds).toFixed(1)}s` : ""}
                           </span>
                         </div>
-                        <div className="text-[11px] font-mono mt-1" style={{ color: "rgba(255,255,255,0.50)" }}>
+                        <div className="text-[11px] font-mono mt-1" style={{ color: "hsl(var(--muted-foreground) / 0.8)" }}>
                           Linhas #{take.lineIndex} → #{calculateEndLine(take.lineIndex, take.durationSeconds || 0)}
                         </div>
                       </div>
                       <button
                         onClick={() => handleDownloadTake(take)}
                         className="p-2 rounded-lg transition-colors"
-                        style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.06)" }}
+                        style={{ color: "hsl(var(--muted-foreground))", background: "rgba(255,255,255,0.06)" }}
                         title="Baixar take"
                         data-testid={`button-download-take-popup-${take.id}`}
                       >
@@ -2263,13 +2263,13 @@ export default function RecordingRoom() {
                         }}>
                           {take.status === "approved" ? "✅ Diretor:" : "❌ Diretor:"}
                         </div>
-                        <p style={{ color: "rgba(255,255,255,0.70)" }}>{take.directorFeedback}</p>
+                        <p style={{ color: "hsl(var(--foreground) / 0.70)" }}>{take.directorFeedback}</p>
                       </div>
                     )}
                   </div>
                 ))}
                 {takesList.length === 0 && (
-                  <div className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.40)" }}>
+                  <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                     Nenhum take gravado nesta sessao
                   </div>
                 )}
@@ -2281,13 +2281,13 @@ export default function RecordingRoom() {
 
       {textControlPopupOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
-            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              <span className="text-sm font-semibold" style={{ color: "hsl(210 40% 96%)" }}>Controle de Texto</span>
+          <div className="rounded-2xl w-[calc(100vw-32px)] max-w-[520px] overflow-hidden" style={{ background: "rgba(15,15,30,0.95)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid hsl(var(--border))", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid hsl(var(--border) / 0.8)" }}>
+              <span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Controle de Texto</span>
               <button
                 onClick={() => setTextControlPopupOpen(false)}
                 className="transition-colors"
-                style={{ color: "rgba(255,255,255,0.40)" }}
+                style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}
                 data-testid="button-close-text-control"
               >
                 <X className="w-4 h-4" />
@@ -2295,7 +2295,7 @@ export default function RecordingRoom() {
             </div>
             <div className="px-6 py-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.40)" }}>Autorizacao (Alunos / Dubladores)</span>
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>Autorizacao (Alunos / Dubladores)</span>
                 <button
                   onClick={() => {
                     const ok = window.confirm("Revogar permissoes temporarias e remover autorizacoes de controle de texto?");
@@ -2315,9 +2315,9 @@ export default function RecordingRoom() {
                 </button>
               </div>
 
-              <div className="text-[11px] mb-3" style={{ color: "rgba(255,255,255,0.55)" }}>
+              <div className="text-[11px] mb-3" style={{ color: "hsl(var(--muted-foreground) / 0.9)" }}>
                 Autorizados:{" "}
-                <span style={{ color: "rgba(255,255,255,0.85)" }}>
+                <span style={{ color: "hsl(var(--foreground) / 0.85)" }}>
                   {(() => {
                     const roster = (presenceUsers.length
                       ? presenceUsers
@@ -2343,7 +2343,7 @@ export default function RecordingRoom() {
                   });
                   if (!eligible.length) {
                     return (
-                      <div className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.40)" }}>
+                      <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                         Nenhum aluno ou dublador conectado
                       </div>
                     );
@@ -2369,7 +2369,7 @@ export default function RecordingRoom() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-[10px] uppercase" style={{ color: "rgba(255,255,255,0.30)" }}>
+                            <div className="text-[10px] uppercase" style={{ color: "hsl(var(--muted-foreground) / 0.5)" }}>
                               {String(p.role || "").replace(/_/g, " ") || "participante"}
                             </div>
                           </div>
@@ -2420,18 +2420,18 @@ export default function RecordingRoom() {
         </div>
       )}
 
-      <header className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between px-2 sm:px-5 py-2 sm:py-0 gap-2 sm:gap-0" style={{ background: "rgba(255,255,255,0.04)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <header className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between px-2 sm:px-5 py-2 sm:py-0 gap-2 sm:gap-0" style={{ background: "rgba(255,255,255,0.04)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid hsl(var(--border) / 0.8)" }}>
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <Link href={`/hub-dub/studio/${studioId}/sessions`}>
-            <button className="flex items-center gap-2 text-sm transition-colors" style={{ color: "rgba(255,255,255,0.45)" }} data-testid="button-exit-room">
+            <button className="flex items-center gap-2 text-sm transition-colors" style={{ color: "hsl(var(--muted-foreground))" }} data-testid="button-exit-room">
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline">Sair</span>
             </button>
           </Link>
-          <div className="hidden sm:block h-4 w-px" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="hidden sm:block h-4 w-px" style={{ background: "hsl(var(--border))" }} />
           <div className="flex items-baseline gap-2 min-w-0">
-            <span className="font-medium text-sm truncate max-w-[52vw] sm:max-w-none" style={{ color: "hsl(210 40% 96%)" }}>{production?.name || "Carregando\u2026"}</span>
-            <span className="text-xs truncate max-w-[36vw] sm:max-w-none" style={{ color: "rgba(255,255,255,0.45)" }}>{session?.title}</span>
+            <span className="font-medium text-sm truncate max-w-[52vw] sm:max-w-none" style={{ color: "hsl(var(--foreground))" }}>{production?.name || "Carregando\u2026"}</span>
+            <span className="text-xs truncate max-w-[36vw] sm:max-w-none" style={{ color: "hsl(var(--muted-foreground))" }}>{session?.title}</span>
           </div>
           {recordingStatus === "recording" && (
             <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(0 72% 65%)", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)" }}>
@@ -2455,13 +2455,13 @@ export default function RecordingRoom() {
                   setTextControlPopupOpen(true);
                 }}
                 className="flex items-center gap-1.5 transition-colors"
-                style={{ color: textControlPopupOpen ? "hsl(var(--primary))" : "rgba(255,255,255,0.45)" }}
+                style={{ color: textControlPopupOpen ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))" }}
                 data-testid="button-open-text-control"
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Controle de Texto</span>
               </button>
-              <div className="hidden sm:block w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+              <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
             </>
           )}
           {!micReady && (
@@ -2474,12 +2474,12 @@ export default function RecordingRoom() {
               <Mic className="w-3.5 h-3.5" /> <span className="hidden sm:inline">48kHz / 24bit</span>
             </span>
           )}
-          <div className="hidden sm:block w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
           {recordingProfile ? (
             <div className="flex items-center gap-1.5">
               <User className="w-3.5 h-3.5" style={{ color: "hsl(var(--primary))" }} />
-              <span className="font-medium" style={{ color: "rgba(255,255,255,0.80)" }}>{recordingProfile.voiceActorName}</span>
-              <span style={{ color: "rgba(255,255,255,0.30)" }}>/</span>
+              <span className="font-medium" style={{ color: "hsl(var(--foreground) / 0.80)" }}>{recordingProfile.voiceActorName}</span>
+              <span style={{ color: "hsl(var(--muted-foreground) / 0.5)" }}>/</span>
               {charactersList && charactersList.length > 1 ? (
                 <select
                   value={recordingProfile.characterId}
@@ -2497,7 +2497,7 @@ export default function RecordingRoom() {
               )}
               <button
                 onClick={() => setShowProfilePanel(true)}
-                className="ml-1 transition-colors" style={{ color: "rgba(255,255,255,0.40)" }}
+                className="ml-1 transition-colors" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}
                 data-testid="button-edit-profile"
                 title="Editar perfil"
               >
@@ -2514,29 +2514,29 @@ export default function RecordingRoom() {
               <span className="hidden sm:inline">Definir Perfil</span>
             </button>
           )}
-          <div className="hidden sm:block w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
           <button
             onClick={() => setTakesPopupOpen(true)}
             className="transition-colors"
-            style={{ color: "rgba(255,255,255,0.45)" }}
+            style={{ color: "hsl(var(--muted-foreground))" }}
             data-testid="button-open-takes-popup"
           >
             <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" style={{ color: "hsl(160 84% 60%)" }} />
             <span className="hidden sm:inline">{takeCount} take{takeCount !== 1 ? "s" : ""}</span>
           </button>
-          <div className="hidden sm:block w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
           <button
             onClick={() => setDeviceSettingsOpen(true)}
-            className="flex items-center gap-1.5 transition-colors" style={{ color: "rgba(255,255,255,0.45)" }}
+            className="flex items-center gap-1.5 transition-colors" style={{ color: "hsl(var(--muted-foreground))" }}
             data-testid="button-open-device-settings"
           >
             <Monitor className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Dispositivos</span>
           </button>
-          <div className="hidden sm:block w-px h-4" style={{ background: "rgba(255,255,255,0.10)" }} />
+          <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
           <button
             onClick={() => { setIsCustomizing(true); setPendingShortcuts(shortcuts); }}
-            className="flex items-center gap-1.5 transition-colors" style={{ color: "rgba(255,255,255,0.45)" }}
+            className="flex items-center gap-1.5 transition-colors" style={{ color: "hsl(var(--muted-foreground))" }}
             data-testid="button-open-shortcuts"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -2598,9 +2598,9 @@ export default function RecordingRoom() {
 
           {videoDuration > 0 && (
             <div className="px-3 sm:px-5 py-2" style={{ background: "rgba(255,255,255,0.03)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              <div className="flex items-center gap-3 text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.45)" }}>
+              <div className="flex items-center gap-3 text-[10px] font-mono" style={{ color: "hsl(var(--muted-foreground))" }}>
                 <span>{formatTimecode(videoTime)}</span>
-                <div className="flex-1 relative h-1.5 rounded-full cursor-pointer group" style={{ background: "rgba(255,255,255,0.10)" }} onClick={(e) => {
+                <div className="flex-1 relative h-1.5 rounded-full cursor-pointer group" style={{ background: "hsl(var(--border))" }} onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   scrub((e.clientX - rect.left) / rect.width);
                 }}>
@@ -2621,7 +2621,7 @@ export default function RecordingRoom() {
                   ))}
                   <div
                     className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md"
-                    style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(var(--primary))", border: "2px solid rgba(255,255,255,0.80)", boxShadow: "0 0 8px rgba(59,130,246,0.4)" }}
+                    style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(var(--primary))", border: "2px solid hsl(var(--foreground) / 0.80)", boxShadow: "0 0 8px rgba(59,130,246,0.4)" }}
                   />
                 </div>
                 <span>{formatTimecode(videoDuration)}</span>
@@ -2631,7 +2631,7 @@ export default function RecordingRoom() {
 
           <div className="shrink-0 px-3 sm:px-5 py-3 sm:py-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0" style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
             <div className="w-full sm:w-56 shrink-0 flex flex-col justify-center gap-1 py-0 sm:py-3">
-              <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
+              <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
                 <span className="uppercase tracking-wider">
                   {recordingStatus === "recording" ? "Ao Vivo" :
                     recordingStatus === "previewing" ? "Reproduzindo" :
@@ -2671,7 +2671,7 @@ export default function RecordingRoom() {
               <div className="w-full sm:w-auto flex items-center justify-center gap-2">
               <button
                 onClick={() => seek(-2)}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "hsl(var(--muted-foreground))", background: "rgba(255,255,255,0.05)" }}
                 data-testid="button-back-2s"
                 title={`Back 2s (${keyLabel(shortcuts.back)})`}
               >
@@ -2680,7 +2680,7 @@ export default function RecordingRoom() {
 
               <button
                 onClick={handlePlayPause}
-                className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all" style={{ background: "rgba(255,255,255,0.08)", color: "hsl(210 40% 96%)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all" style={{ background: "hsl(var(--border) / 0.8)", color: "hsl(var(--foreground))", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
                 data-testid="button-play-pause"
                 title={`Play/Pause (${keyLabel(shortcuts.playPause)})`}
               >
@@ -2689,14 +2689,14 @@ export default function RecordingRoom() {
 
               <button
                 onClick={recordingStatus === "recording" ? handleStopRecording : handleStopPlayback}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "hsl(var(--muted-foreground))", background: "rgba(255,255,255,0.05)" }}
                 data-testid="button-stop"
                 title={`Stop (${keyLabel(shortcuts.stop)})`}
               >
                 <Square className="w-4 h-4" />
               </button>
 
-              <div className="hidden sm:block w-px h-8 mx-1" style={{ background: "rgba(255,255,255,0.10)" }} />
+              <div className="hidden sm:block w-px h-8 mx-1" style={{ background: "hsl(var(--border))" }} />
               </div>
 
               {recordingStatus === "idle" || recordingStatus === "countdown" ? (
@@ -2705,8 +2705,8 @@ export default function RecordingRoom() {
                   disabled={!micReady || recordingStatus === "countdown"}
                   className="w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-30"
                   style={recordingStatus === "countdown"
-                    ? { background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.30)", cursor: "wait", color: "rgba(255,255,255,0.70)" }
-                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.70)" }
+                    ? { background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.30)", cursor: "wait", color: "hsl(var(--foreground) / 0.70)" }
+                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "hsl(var(--foreground) / 0.70)" }
                   }
                   data-testid="button-record"
                   title={`Record (${keyLabel(shortcuts.record)})`}
@@ -2730,7 +2730,7 @@ export default function RecordingRoom() {
                     className="w-11 h-11 rounded-full flex items-center justify-center transition-all"
                     style={recordingStatus === "previewing"
                       ? { background: "hsl(var(--primary))", color: "white", boxShadow: "0 0 16px rgba(59,130,246,0.3)" }
-                      : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.70)", border: "1px solid rgba(255,255,255,0.12)" }
+                      : { background: "rgba(255,255,255,0.06)", color: "hsl(var(--foreground) / 0.70)", border: "1px solid rgba(255,255,255,0.12)" }
                     }
                     data-testid="button-preview"
                   >
@@ -2756,11 +2756,11 @@ export default function RecordingRoom() {
                 </div>
               )}
 
-              <div className="hidden sm:block w-px h-8 mx-1" style={{ background: "rgba(255,255,255,0.10)" }} />
+              <div className="hidden sm:block w-px h-8 mx-1" style={{ background: "hsl(var(--border))" }} />
 
               <button
                 onClick={() => seek(2)}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all" style={{ color: "hsl(var(--muted-foreground))", background: "rgba(255,255,255,0.05)" }}
                 data-testid="button-forward-2s"
                 title={`Forward 2s (${keyLabel(shortcuts.forward)})`}
               >
@@ -2783,7 +2783,7 @@ export default function RecordingRoom() {
                 className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
                 style={isLooping || loopSelectionMode !== "idle"
                   ? { background: "hsl(var(--primary) / 0.12)", color: "hsl(var(--primary))", boxShadow: "0 0 0 1px hsl(var(--primary) / 0.30)" }
-                  : { color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.05)" }
+                  : { color: "hsl(var(--muted-foreground))", background: "rgba(255,255,255,0.05)" }
                 }
                 data-testid="button-loop"
                 title={`Toggle loop (${keyLabel(shortcuts.loop)})`}
@@ -2795,7 +2795,7 @@ export default function RecordingRoom() {
             <div className="w-full sm:w-44 shrink-0 flex flex-col items-start sm:items-end gap-1.5">
               {isLooping && (
                 <div className="flex flex-col items-end gap-1">
-                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
                     <span>Pre-roll</span>
                     <div className="flex gap-0.5">
                       {[0.5, 1, 2, 3].map((v) => (
@@ -2805,7 +2805,7 @@ export default function RecordingRoom() {
                           className="px-1.5 py-0.5 rounded text-[10px] transition-colors"
                           style={preRoll === v
                             ? { background: "hsl(var(--primary) / 0.12)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
-                            : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)" }
+                            : { background: "rgba(255,255,255,0.05)", color: "hsl(var(--muted-foreground) / 0.8)" }
                           }
                           data-testid={`preroll-${v}`}
                         >
@@ -2814,7 +2814,7 @@ export default function RecordingRoom() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                  <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
                     <span>Post-roll</span>
                     <div className="flex gap-0.5">
                       {[0.5, 1, 2, 3].map((v) => (
@@ -2824,7 +2824,7 @@ export default function RecordingRoom() {
                           className="px-1.5 py-0.5 rounded text-[10px] transition-colors"
                           style={postRoll === v
                             ? { background: "hsl(var(--primary) / 0.12)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
-                            : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)" }
+                            : { background: "rgba(255,255,255,0.05)", color: "hsl(var(--muted-foreground) / 0.8)" }
                           }
                           data-testid={`postroll-${v}`}
                         >
@@ -2835,7 +2835,7 @@ export default function RecordingRoom() {
                   </div>
                 </div>
               )}
-              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.40)" }}>
+              <p className="text-[10px]" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                 {savedTakes.size} / {scriptLines.length} linhas salvas
               </p>
             </div>
@@ -2844,7 +2844,7 @@ export default function RecordingRoom() {
 
         <div className="flex flex-col min-h-0 bg-white/[0.02]">
           <div className="h-11 shrink-0 px-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)" }}>
-            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.40)" }}>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
               Roteiro
             </span>
             <div className="flex items-center gap-2">
@@ -2856,7 +2856,7 @@ export default function RecordingRoom() {
                     className="text-[10px] font-semibold px-2 py-1 rounded-full transition-colors flex items-center gap-1.5"
                     style={showOnlyMyCharacter
                       ? { background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
-                      : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)", border: "1px solid rgba(255,255,255,0.08)" }
+                      : { background: "rgba(255,255,255,0.05)", color: "hsl(var(--muted-foreground) / 0.8)", border: "1px solid hsl(var(--border) / 0.8)" }
                     }
                     data-testid="button-filter-character"
                     title={showOnlyMyCharacter ? `Mostrando apenas ${recordingProfile.characterName}` : "Filtrar por personagem"}
@@ -2873,7 +2873,7 @@ export default function RecordingRoom() {
                 className="text-[10px] px-2 py-1 rounded-full transition-colors flex items-center gap-1.5"
                 style={scriptAutoFollow
                   ? { background: "hsl(var(--primary) / 0.14)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
-                  : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.10)" }
+                  : { background: "rgba(255,255,255,0.06)", color: "hsl(var(--muted-foreground) / 0.9)", border: "1px solid hsl(var(--border))" }
                 }
                 data-testid="button-script-follow"
                 title={scriptAutoFollow ? "Seguindo automaticamente" : "Retomar sincronizacao"}
@@ -2881,8 +2881,8 @@ export default function RecordingRoom() {
                 <Navigation className="w-3 h-3" />
                 <span className="hidden sm:inline">{scriptAutoFollow ? "AUTO" : "SEGUIR"}</span>
               </button>
-              <span className="text-xs" style={{ color: "rgba(255,255,255,0.40)" }}>
-                <span className="font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>{currentLine + 1}</span>
+              <span className="text-xs" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
+                <span className="font-mono" style={{ color: "hsl(var(--foreground) / 0.75)" }}>{currentLine + 1}</span>
                 {" "}/{" "}
                 {scriptLines.length}
               </span>
@@ -2914,13 +2914,13 @@ export default function RecordingRoom() {
               </div>
             )}
             {scriptLines.length === 0 && !session && (
-              <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: "rgba(255,255,255,0.40)" }}>
-                <div className="w-10 h-10 rounded-full animate-spin" style={{ border: "2px solid rgba(255,255,255,0.10)", borderTopColor: "hsl(var(--primary))" }} />
+              <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
+                <div className="w-10 h-10 rounded-full animate-spin" style={{ border: "2px solid hsl(var(--border))", borderTopColor: "hsl(var(--primary))" }} />
                 <p className="text-sm">Carregando sessao...</p>
               </div>
             )}
             {scriptLines.length === 0 && session && (
-              <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: "rgba(255,255,255,0.40)" }}>
+              <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                 <p className="text-sm">Nenhum roteiro carregado</p>
                 <p className="text-xs">Adicione um roteiro a producao para ver as falas aqui</p>
               </div>
@@ -2952,7 +2952,7 @@ export default function RecordingRoom() {
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500/40" />
                   )}
                   <div className="flex items-center gap-3 mb-2 lg:mb-3">
-                    <span className="text-[16px] lg:text-[16px] font-mono tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>
+                    <span className="text-[16px] lg:text-[16px] font-mono tabular-nums" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                       {formatTimecode(line.start)}
                     </span>
                     <span
@@ -2969,7 +2969,7 @@ export default function RecordingRoom() {
                           setEditingLineText(lineEdits[i] ?? line.text);
                         }}
                         className="ml-1 p-1 rounded transition-colors"
-                        style={{ color: "rgba(255,255,255,0.40)" }}
+                        style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}
                         title="Editar fala"
                         data-testid={`button-edit-line-${i}`}
                       >
@@ -2988,7 +2988,7 @@ export default function RecordingRoom() {
                         value={editingLineText}
                         onChange={(e) => setEditingLineText(e.target.value)}
                         className="w-full rounded-lg p-3 text-[16px] lg:text-[18px] leading-relaxed bg-black/30 border border-white/10 focus:border-primary outline-none"
-                        style={{ color: "hsl(210 40% 96%)" }}
+                        style={{ color: "hsl(var(--foreground))" }}
                         rows={3}
                         data-testid={`textarea-edit-line-${i}`}
                       />
@@ -3021,7 +3021,7 @@ export default function RecordingRoom() {
                     </div>
                   ) : (
                     <p className="text-[22px] lg:text-[30px] leading-[1.7] transition-colors" style={{
-                      color: isActive ? "hsl(210 40% 96%)" : "rgba(255,255,255,0.45)",
+                      color: isActive ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
                       fontWeight: isActive ? 500 : 400,
                     }}>
                       {lineEdits[i] ?? line.text}

@@ -28,7 +28,7 @@
     --secondary-border: 0 0% 85%;
 
     --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 34%;
+    --muted-foreground: 0 0% 30%;
     --muted-border: 0 0% 86%;
 
     --accent: 0 0% 95%;
@@ -46,7 +46,7 @@
     --radius: 1rem;
 
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 16%;
+    --sidebar-foreground: 0 0% 10%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 94%;

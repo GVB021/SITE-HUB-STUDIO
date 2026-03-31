@@ -101,9 +101,9 @@ export function TakeReviewActions({
   
   if (feedbackMode) {
     return (
-      <div className="space-y-2 border rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.08)" }}>
+      <div className="space-y-2 border rounded-lg p-3" style={{ background: "hsl(var(--muted) / 0.3)", borderColor: "hsl(var(--border) / 0.8)" }}>
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.85)" }}>
+          <span className="text-xs font-medium" style={{ color: "hsl(var(--foreground) / 0.85)" }}>
             {feedbackMode === 'approve' ? '✅ Aprovar Take' : '❌ Rejeitar Take'}
           </span>
           <button
@@ -113,7 +113,7 @@ export function TakeReviewActions({
               setSetAsFinal(false);
             }}
             className="text-xs px-2 py-0.5 rounded transition-colors"
-            style={{ color: "rgba(255,255,255,0.45)" }}
+            style={{ color: "hsl(var(--muted-foreground))" }}
           >
             Cancelar
           </button>
@@ -130,14 +130,14 @@ export function TakeReviewActions({
           rows={3}
           className="w-full text-sm px-3 py-2 rounded border resize-none"
           style={{ 
-            background: "rgba(255,255,255,0.04)", 
-            borderColor: "rgba(255,255,255,0.10)",
-            color: "rgba(255,255,255,0.85)"
+            background: "hsl(var(--muted) / 0.4)", 
+            borderColor: "hsl(var(--border))",
+            color: "hsl(var(--foreground) / 0.85)"
           }}
         />
         
         {feedbackMode === 'approve' && (
-          <label className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.70)" }}>
+          <label className="flex items-center gap-2 text-xs" style={{ color: "hsl(var(--foreground) / 0.70)" }}>
             <input
               type="checkbox"
               checked={setAsFinal}
