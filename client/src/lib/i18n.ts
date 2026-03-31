@@ -58,9 +58,8 @@ export const en = {
     pending: "Pending",
   },
   roles: {
-    studio_admin: "Studio Admin",
+    platform_owner: "Platform Owner",
     diretor: "Director",
-    engenheiro_audio: "Audio Engineer",
     dublador: "Voice Actor",
   },
   dashboard: {
@@ -410,9 +409,8 @@ export const pt = {
     pending: "Pendente",
   },
   roles: {
-    studio_admin: "Administrador do Estúdio",
+    platform_owner: "Dono da Plataforma",
     diretor: "Diretor",
-    engenheiro_audio: "Engenheiro de Áudio",
     dublador: "Dublador",
   },
   dashboard: {

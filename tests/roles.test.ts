@@ -5,34 +5,33 @@ import { getHighestStudioRole, normalizePlatformRole, normalizeStudioRole, hasMi
 test("normalizePlatformRole handles aliases", () => {
   assert.equal(normalizePlatformRole("platformowner"), "platform_owner");
   assert.equal(normalizePlatformRole("platform_owner"), "platform_owner");
-  assert.equal(normalizePlatformRole("user"), "user");
-  assert.equal(normalizePlatformRole(undefined), "user");
+  assert.equal(normalizePlatformRole("director"), "diretor");
+  assert.equal(normalizePlatformRole("voice_actor"), "dublador");
+  assert.equal(normalizePlatformRole("aluno"), "dublador");
 });
 
 test("normalizeStudioRole handles aliases", () => {
-  assert.equal(normalizeStudioRole("adminstudio"), "studio_admin");
-  assert.equal(normalizeStudioRole("engenheriodeaudio"), "engenheiro_audio");
   assert.equal(normalizeStudioRole("director"), "diretor");
+  assert.equal(normalizeStudioRole("teacher"), "diretor");
   assert.equal(normalizeStudioRole("voice_actor"), "dublador");
-  assert.equal(normalizeStudioRole(undefined), "aluno");
+  assert.equal(normalizeStudioRole("aluno"), "dublador");
+  assert.equal(normalizeStudioRole(undefined), "dublador");
 });
 
 test("getHighestStudioRole returns the most privileged role", () => {
-  assert.equal(getHighestStudioRole(["aluno", "dublador"]), "dublador");
-  assert.equal(getHighestStudioRole(["engenheiro_audio", "diretor"]), "diretor");
-  assert.equal(getHighestStudioRole(["adminstudio", "diretor"]), "studio_admin");
+  assert.equal(getHighestStudioRole(["dublador", "diretor"]), "diretor");
+  assert.equal(getHighestStudioRole(["dublador"]), "dublador");
+  assert.equal(getHighestStudioRole(["platform_owner", "diretor"]), "platform_owner");
 });
 
 test("hasMinStudioRole enforces hierarchy", () => {
-  assert.equal(hasMinStudioRole("dublador", "aluno"), true);
-  assert.equal(hasMinStudioRole("aluno", "dublador"), false);
-  assert.equal(hasMinStudioRole("engenheriodeaudio", "engenheiro_audio"), true);
+  assert.equal(hasMinStudioRole("diretor", "dublador"), true);
+  assert.equal(hasMinStudioRole("dublador", "diretor"), false);
+  assert.equal(hasMinStudioRole("platform_owner", "diretor"), true);
 });
 
 test("isPrivilegedStudioRole matches privileged roles", () => {
-  assert.equal(isPrivilegedStudioRole("aluno"), false);
   assert.equal(isPrivilegedStudioRole("dublador"), false);
-  assert.equal(isPrivilegedStudioRole("engenheiro_audio"), true);
   assert.equal(isPrivilegedStudioRole("diretor"), true);
-  assert.equal(isPrivilegedStudioRole("adminstudio"), true);
+  assert.equal(isPrivilegedStudioRole("platform_owner"), true);
 });

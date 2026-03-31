@@ -584,7 +584,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
     const studioAdmins = await storage.getStudioMemberships(req.params.studioId);
     for (const m of studioAdmins) {
-      if (m.role === "studio_admin" || (req.studioRoles || []).includes("studio_admin")) {
+      if (m.role === "diretor" || (req.studioRoles || []).includes("diretor")) {
         await storage.createNotification({
           userId: m.userId,
           type: "join_request",
@@ -954,7 +954,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!takeRecord) return res.status(404).json({ message: "Take nao encontrado" });
       const userId = (req.user as any)?.id;
       const userRole = (req.user as any)?.role;
-      const isAdmin = userRole === "platform_owner" || userRole === "studio_admin";
+      const isAdmin = userRole === "platform_owner" || userRole === "diretor";
       if (!isAdmin && takeRecord.voiceActorId !== userId) {
         return res.status(403).json({ message: "Voce so pode excluir seus proprios takes" });
       }
@@ -990,7 +990,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const role = participant?.role?.toLowerCase() || "";
       const userRole = (req.user as any)?.role;
-      const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
+      const isDirector = ["diretor", "director"].includes(role) || userRole === "platform_owner";
 
       logger.info("[Approve Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
 
@@ -1075,7 +1075,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const role = participant?.role?.toLowerCase() || "";
       const userRole = (req.user as any)?.role;
-      const isDirector = ["diretor", "director", "studio_admin"].includes(role) || userRole === "platform_owner";
+      const isDirector = ["diretor", "director"].includes(role) || userRole === "platform_owner";
 
       logger.info("[Reject Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
 
@@ -1128,7 +1128,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(200).json(allTakes);
       }
       const roles = await storage.getUserRolesInStudio(user.id, studioId);
-      if (!roles.includes("studio_admin")) {
+      if (!roles.includes("diretor")) {
         return res.status(403).json({ message: "Acesso restrito a administradores" });
       }
       const studioTakes = await storage.getStudioTakesGrouped(studioId);
@@ -1149,7 +1149,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const isOwner = String(take.voiceActorId || "") === String(user.id || "");
         if (!isOwner) {
           const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
-          if (!roles.includes("studio_admin")) {
+          if (!roles.includes("diretor")) {
             return res.status(403).json({ message: "Acesso negado" });
           }
         }
@@ -1190,7 +1190,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const isOwner = String(take.voiceActorId || "") === String(user.id || "");
         if (!isOwner) {
           const roles = await storage.getUserRolesInStudio(user.id, take.studioId);
-          if (!roles.includes("studio_admin")) {
+          if (!roles.includes("diretor")) {
             return res.status(403).json({ message: "Acesso negado" });
           }
         }
@@ -1248,7 +1248,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         for (const sid of studioIds) {
           const roles = await storage.getUserRolesInStudio(user.id, sid as string);
-          if (!roles.includes("studio_admin")) {
+          if (!roles.includes("diretor")) {
             return res.status(403).json({ message: "Acesso negado a takes de outro estudio" });
           }
         }
@@ -1290,7 +1290,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const user = (req as any).user!;
       if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, takeList[0].studioId);
-        if (!roles.includes("studio_admin")) {
+        if (!roles.includes("diretor")) {
           return res.status(403).json({ message: "Acesso negado" });
         }
       }
@@ -1332,7 +1332,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const user = (req as any).user!;
       if (user.role !== "platform_owner") {
         const roles = await storage.getUserRolesInStudio(user.id, takeList[0].studioId);
-        if (!roles.includes("studio_admin")) {
+        if (!roles.includes("diretor")) {
           return res.status(403).json({ message: "Acesso negado" });
         }
       }

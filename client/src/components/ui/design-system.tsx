@@ -130,26 +130,14 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 
 // ─── Role Badge ───────────────────────────────────────────────────────────────
 const ROLE_LABEL: Record<string, string> = {
-  voice_actor:      "Dublador",
-  dublador:         "Dublador",
-  director:         "Diretor",
-  diretor:          "Diretor",
-  engineer:         "Engenheiro de Audio",
-  engenheiro_audio: "Engenheiro de Audio",
   platform_owner:   "Dono da Plataforma",
-  studio_admin:     "Admin Estudio",
-  aluno:            "Aluno",
+  diretor:          "Diretor",
+  dublador:         "Dublador",
 };
 const ROLE_CLASS: Record<string, string> = {
-  voice_actor:      "bg-violet-500/12 text-violet-400 border border-violet-500/25",
-  dublador:         "bg-violet-500/12 text-violet-400 border border-violet-500/25",
-  director:         "bg-amber-500/12 text-amber-400 border border-amber-500/25",
-  diretor:          "bg-amber-500/12 text-amber-400 border border-amber-500/25",
-  engineer:         "bg-amber-500/12 text-amber-400 border border-amber-500/25",
-  engenheiro_audio: "bg-amber-500/12 text-amber-400 border border-amber-500/25",
   platform_owner:   "bg-rose-500/12 text-rose-400 border border-rose-500/25",
-  studio_admin:     "bg-primary/12 text-primary border border-primary/25",
-  aluno:            "bg-zinc-500/12 text-zinc-400 border border-zinc-500/25",
+  diretor:          "bg-amber-500/12 text-amber-400 border border-amber-500/25",
+  dublador:         "bg-violet-500/12 text-violet-400 border border-violet-500/25",
 };
 interface RoleBadgeProps {
   role: string;

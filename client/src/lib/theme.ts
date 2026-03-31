@@ -26,15 +26,9 @@ export const theme = {
       cancelled: { bg: "bg-red-500/12",      text: "text-red-400",     ring: "border-red-500/25"     },
     },
     roles: {
-      voice_actor:    "bg-violet-500/12 text-violet-400 border-violet-500/25",
-      dublador:       "bg-violet-500/12 text-violet-400 border-violet-500/25",
-      director:       "bg-amber-500/12 text-amber-400 border-amber-500/25",
-      diretor:        "bg-amber-500/12 text-amber-400 border-amber-500/25",
-      engineer:       "bg-amber-500/12 text-amber-400 border-amber-500/25",
-      engenheiro_audio: "bg-amber-500/12 text-amber-400 border-amber-500/25",
       platform_owner: "bg-rose-500/12 text-rose-400 border-rose-500/25",
-      studio_admin:   "bg-primary/12 text-primary border-primary/25",
-      aluno:          "bg-zinc-500/12 text-zinc-400 border-zinc-500/25",
+      diretor:        "bg-amber-500/12 text-amber-400 border-amber-500/25",
+      dublador:       "bg-violet-500/12 text-violet-400 border-violet-500/25",
     },
   },
 
