@@ -1033,11 +1033,16 @@ export default function RecordingRoom() {
 
   const isPrivileged = useMemo(() => {
     const userPlatformRole = String(user?.role || "").toLowerCase();
+    console.log('[DEBUG] isPrivileged check:', {
+      userPlatformRole,
+      myStudioRole,
+      userRole: user?.role,
+      userId: user?.id,
+      sessionParticipants: session?.participants?.map((p: any) => ({ id: p.userId, role: p.role }))
+    });
     if (userPlatformRole === "platform_owner") return true;
-    // Check user platform role for privileged access (directors with production_access)
     const privilegedUserRoles = new Set(["director", "diretor", "studio_admin", "admin", "owner", "teacher", "producer", "produtor", "engineer", "engenheiro_audio", "audio_engineer"]);
     if (privilegedUserRoles.has(userPlatformRole)) return true;
-    // Also check session participant role
     const privilegedRoles = new Set([
       "studio_admin",
       "diretor",
@@ -1048,7 +1053,9 @@ export default function RecordingRoom() {
       "engineer",
       "admin",
     ]);
-    return privilegedRoles.has(myStudioRole);
+    const result = privilegedRoles.has(myStudioRole);
+    console.log('[DEBUG] isPrivileged result:', result, 'myStudioRole:', myStudioRole);
+    return result;
   }, [user?.role, myStudioRole]);
 
   const isDirector = useMemo(() => {
