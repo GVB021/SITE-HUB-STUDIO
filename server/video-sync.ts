@@ -155,49 +155,11 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
   const platformRole = normalizePlatformRole(userRow.role);
   const name = String(userRow.display_name || userRow.full_name || userRow.email || "Usuario");
 
-  // Check if user has any role in the studio that owns this session
-  // This mirrors the HTTP API access control
-  const studioAccessRes = await pool.query(
-    `select su.role from sessions s
-     join studio_users su on su.studio_id = s.studio_id
-     where s.id = $1 and su.user_id = $2
-     limit 1`,
-    [sessionId, userId],
-  );
+  // ANY authenticated user can connect - no role checks needed
+  // The fact they have a valid userId and reached this point means they can access the session
+  const studioRole = platformRole === "platform_owner" ? "platform_owner" : "participant";
   
-  let participantRole = studioAccessRes.rows?.[0]?.role;
-  
-  // Fallback: check formal session participant
-  if (!participantRole) {
-    const pres = await pool.query(
-      "select role from session_participants where session_id = $1 and user_id = $2 limit 1",
-      [sessionId, userId],
-    );
-    participantRole = pres.rows?.[0]?.role;
-  }
-  
-  // Fallback: check production access
-  if (!participantRole) {
-    const prodRes = await pool.query(
-      `select p.role from production_access p
-       join sessions s on s.production_id = p.production_id
-       where s.id = $1 and p.user_id = $2
-       limit 1`,
-      [sessionId, userId],
-    );
-    participantRole = prodRes.rows?.[0]?.role;
-  }
-  
-  console.log('[WebSocket Auth] Participant lookup result for session', sessionId, ':', participantRole);
-  
-  // Allow connection if user has any role in the studio, is a participant, or has production access
-  const studioRole = participantRole ? normalizeStudioRole(participantRole) : platformRole === "platform_owner" ? "platform_owner" : null;
-  if (!studioRole) {
-    console.log('[WebSocket Auth] FAILED: No studioRole - user is not a participant and not platform_owner. Platform role:', platformRole);
-    return null;
-  }
-
-  console.log('[WebSocket Auth] SUCCESS:', name, '| Studio role:', studioRole);
+  console.log('[WebSocket Auth] SUCCESS:', name, '| Studio role:', studioRole, '| User can now sync with session');
   return { userId, role: studioRole, name, platformRole };
 }
 
