@@ -30,6 +30,7 @@ import {
   Maximize2,
   ChevronUp,
   ChevronDown,
+  Navigation,
 } from "lucide-react";
 import { useToast } from "@studio/hooks/use-toast";
 import { useAuth } from "@studio/hooks/use-auth";
@@ -90,12 +91,9 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
 
   return (
     <div 
-      className={cn(
-        "transition-all duration-300 ease-in-out",
-        isExpanded ? "fixed bottom-0 left-0 right-0 z-[50]" : "shrink-0"
-      )}
+      className="shrink-0 transition-all duration-300 ease-in-out"
       style={{
-        height: isExpanded ? '1000px' : '70px',
+        height: isExpanded ? 'clamp(400px, 60vh, 1000px)' : '70px',
         background: 'rgba(15,15,30,0.98)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -139,7 +137,7 @@ function DailyMeetPanel({ sessionId }: { sessionId: string }) {
       <div 
         className="overflow-hidden px-4 pb-3"
         style={{
-          height: isExpanded ? '930px' : '0px',
+          height: isExpanded ? 'calc(100% - 70px)' : '0px',
           visibility: isExpanded ? 'visible' : 'hidden'
         }}
       >
@@ -2441,7 +2439,7 @@ export default function RecordingRoom() {
             </span>
           )}
           {recordingStatus === "recorded" && (
-            <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(45 93% 55%)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
+            <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full" style={{ color: "hsl(217 91% 60%)", background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)" }}>
               <AlertCircle className="w-3 h-3" /> Nao salvo
             </span>
           )}
@@ -2509,7 +2507,7 @@ export default function RecordingRoom() {
           ) : (
             <button
               onClick={() => setShowProfilePanel(true)}
-              className="flex items-center gap-1.5 transition-colors" style={{ color: "hsl(45 93% 55%)" }}
+              className="flex items-center gap-1.5 transition-colors" style={{ color: "hsl(217 91% 60%)" }}
               data-testid="button-setup-profile"
             >
               <User className="w-3.5 h-3.5" />
@@ -2548,8 +2546,8 @@ export default function RecordingRoom() {
         </div>
       </header>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr] overflow-hidden">
-        <div className="flex flex-col min-h-0 lg:border-r lg:border-white/10">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-[1.25fr_0.75fr] overflow-hidden">
+        <div className="flex flex-col min-h-0 md:border-r md:border-white/10">
           <div className="flex-1 min-h-[240px] relative overflow-hidden" style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)", margin: "4px 4px 0 4px", borderRadius: "12px" }}>
             {production?.videoUrl ? (
               <video
@@ -2623,7 +2621,7 @@ export default function RecordingRoom() {
                   ))}
                   <div
                     className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md"
-                    style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(var(--primary))", border: "2px solid rgba(255,255,255,0.80)", boxShadow: "0 0 8px rgba(245,158,11,0.4)" }}
+                    style={{ left: `${(videoTime / videoDuration) * 100}%`, transform: "translate(-50%,-50%)", background: "hsl(var(--primary))", border: "2px solid rgba(255,255,255,0.80)", boxShadow: "0 0 8px rgba(59,130,246,0.4)" }}
                   />
                 </div>
                 <span>{formatTimecode(videoDuration)}</span>
@@ -2650,13 +2648,13 @@ export default function RecordingRoom() {
                     {qualityMetrics && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={
                         qualityMetrics.score > 80 ? { background: "rgba(16,185,129,0.12)", color: "hsl(160 84% 60%)", border: "1px solid rgba(16,185,129,0.25)" } :
-                        qualityMetrics.score > 50 ? { background: "rgba(245,158,11,0.12)", color: "hsl(45 93% 55%)", border: "1px solid rgba(245,158,11,0.25)" } :
+                        qualityMetrics.score > 50 ? { background: "rgba(59,130,246,0.12)", color: "hsl(217 91% 60%)", border: "1px solid rgba(59,130,246,0.25)" } :
                         { background: "rgba(239,68,68,0.12)", color: "hsl(0 72% 65%)", border: "1px solid rgba(239,68,68,0.25)" }
                       }>
                         {qualityMetrics.score}
                       </span>
                     )}
-                    <span className="font-mono" style={{ color: "hsl(45 93% 55%)" }}>{lastRecording.durationSeconds.toFixed(1)}s</span>
+                    <span className="font-mono" style={{ color: "hsl(217 91% 60%)" }}>{lastRecording.durationSeconds.toFixed(1)}s</span>
                   </div>
                 )}
               </div>
@@ -2707,7 +2705,7 @@ export default function RecordingRoom() {
                   disabled={!micReady || recordingStatus === "countdown"}
                   className="w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-30"
                   style={recordingStatus === "countdown"
-                    ? { background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.30)", cursor: "wait", color: "rgba(255,255,255,0.70)" }
+                    ? { background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.30)", cursor: "wait", color: "rgba(255,255,255,0.70)" }
                     : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.70)" }
                   }
                   data-testid="button-record"
@@ -2731,7 +2729,7 @@ export default function RecordingRoom() {
                     onClick={handlePreview}
                     className="w-11 h-11 rounded-full flex items-center justify-center transition-all"
                     style={recordingStatus === "previewing"
-                      ? { background: "hsl(var(--primary))", color: "white", boxShadow: "0 0 16px rgba(245,158,11,0.3)" }
+                      ? { background: "hsl(var(--primary))", color: "white", boxShadow: "0 0 16px rgba(59,130,246,0.3)" }
                       : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.70)", border: "1px solid rgba(255,255,255,0.12)" }
                     }
                     data-testid="button-preview"
@@ -2850,10 +2848,29 @@ export default function RecordingRoom() {
               Roteiro
             </span>
             <div className="flex items-center gap-2">
+              {!scriptAutoFollow && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyMyCharacter(!showOnlyMyCharacter)}
+                    className="text-[10px] font-semibold px-2 py-1 rounded-full transition-colors flex items-center gap-1.5"
+                    style={showOnlyMyCharacter
+                      ? { background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
+                      : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)", border: "1px solid rgba(255,255,255,0.08)" }
+                    }
+                    data-testid="button-filter-character"
+                    title={showOnlyMyCharacter ? `Mostrando apenas ${recordingProfile.characterName}` : "Filtrar por personagem"}
+                  >
+                    <User className="w-3 h-3" />
+                    <span className="hidden sm:inline">Apenas {recordingProfile.characterName || "personagem"}</span>
+                  </button>
+                  <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.15)" }} />
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => { setScriptAutoFollow(true); scrollScriptToLine(currentLine, "smooth"); }}
-                className="text-[10px] px-2 py-1 rounded-full transition-colors"
+                className="text-[10px] px-2 py-1 rounded-full transition-colors flex items-center gap-1.5"
                 style={scriptAutoFollow
                   ? { background: "hsl(var(--primary) / 0.14)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
                   : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.10)" }
@@ -2861,7 +2878,8 @@ export default function RecordingRoom() {
                 data-testid="button-script-follow"
                 title={scriptAutoFollow ? "Seguindo automaticamente" : "Retomar sincronizacao"}
               >
-                {scriptAutoFollow ? "AUTO" : "SEGUIR"}
+                <Navigation className="w-3 h-3" />
+                <span className="hidden sm:inline">{scriptAutoFollow ? "AUTO" : "SEGUIR"}</span>
               </button>
               <span className="text-xs" style={{ color: "rgba(255,255,255,0.40)" }}>
                 <span className="font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>{currentLine + 1}</span>
@@ -2880,38 +2898,6 @@ export default function RecordingRoom() {
             onTouchMoveCapture={markScriptUserScrollIntent}
             onPointerDownCapture={markScriptUserScrollIntent}
           >
-            {!scriptAutoFollow && scriptLines.length > 0 && (
-              <div className="sticky top-0 z-20 mb-3">
-                <div className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ background: "rgba(15,15,30,0.88)", border: "1px solid rgba(255,255,255,0.10)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
-                  <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-                    Rolagem livre
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowOnlyMyCharacter(!showOnlyMyCharacter)}
-                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                      style={showOnlyMyCharacter
-                        ? { background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }
-                        : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.50)", border: "1px solid rgba(255,255,255,0.08)" }
-                      }
-                      data-testid="button-filter-character"
-                    >
-                      Apenas {recordingProfile.characterName || "meu personagem"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setScriptAutoFollow(true); scrollScriptToLine(currentLine, "smooth"); }}
-                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                      style={{ background: "hsl(var(--primary) / 0.16)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.25)" }}
-                      data-testid="button-script-resume-follow"
-                    >
-                      Voltar ao atual
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {scriptLines.length > 1 && (
               <div className="absolute right-1 top-3 bottom-3 w-[3px] rounded-full" style={{ background: "rgba(255,255,255,0.06)", pointerEvents: "none" }}>

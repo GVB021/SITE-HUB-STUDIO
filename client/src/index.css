@@ -21,9 +21,9 @@
     --popover-foreground: 240 10% 3.9%;
     --popover-border: 240 5.9% 90%;
 
-    --primary: 38 100% 50%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --primary-border: 38 100% 50%;
+    --primary-border: 217 91% 60%;
 
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
@@ -43,21 +43,21 @@
 
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
-    --ring: 38 100% 50%;
+    --ring: 217 91% 60%;
 
     --radius: 1rem; /* More rounded corners */
 
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar: 0 0% 98%;
-    --sidebar-primary: 38 100% 50%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-primary-border: 38 100% 50%;
+    --sidebar-primary-border: 217 91% 60%;
     --sidebar-accent: 240 4.8% 95.9%;
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-accent-border: 240 5.9% 90%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 38 100% 50%;
+    --sidebar-ring: 217 91% 60%;
 
     --glass-bg: rgba(255, 255, 255, 0.7);
     --glass-bg-hover: rgba(255, 255, 255, 0.8);
@@ -80,9 +80,9 @@
     --popover-foreground: 0 0% 95%;
     --popover-border: 240 3.7% 15.9%;
 
-    --primary: 38 100% 50%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --primary-border: 38 100% 50%;
+    --primary-border: 217 91% 60%;
 
     --secondary: 240 3.7% 15.9%;
     --secondary-foreground: 0 0% 98%;
@@ -102,19 +102,19 @@
 
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 38 100% 50%;
+    --ring: 217 91% 60%;
     
     --sidebar-background: 240 10% 9%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar: 240 10% 9%;
-    --sidebar-primary: 38 100% 50%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-primary-border: 38 100% 50%;
+    --sidebar-primary-border: 217 91% 60%;
     --sidebar-accent: 240 3.7% 15.9%;
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-accent-border: 240 3.7% 15.9%;
     --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 38 100% 50%;
+    --sidebar-ring: 217 91% 60%;
 
     --glass-bg: rgba(0, 0, 0, 0.6);
     --glass-bg-hover: rgba(0, 0, 0, 0.7);
@@ -403,7 +403,7 @@
   }
   .vhub-label-accent {
     @apply text-[10px] font-semibold uppercase tracking-[0.12em];
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(350 90% 65%));
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(260 80% 65%));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -501,7 +501,7 @@
   }
 
   .gradient-text {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(350 90% 65%));
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(260 80% 65%));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -548,7 +548,7 @@
 
   .status-active    { background: rgba(16,185,129,0.12); color: hsl(160 84% 60%); border: 1px solid rgba(16,185,129,0.25); }
   .status-planned   { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.10); }
-  .status-completed { background: rgba(245,158,11,0.12); color: hsl(45 93% 55%); border: 1px solid rgba(245,158,11,0.25); }
+  .status-completed { background: rgba(59,130,246,0.12); color: hsl(217 91% 60%); border: 1px solid rgba(59,130,246,0.25); }
   .status-cancelled { background: rgba(239,68,68,0.12); color: hsl(0 72% 65%); border: 1px solid rgba(239,68,68,0.25); }
 
   @keyframes hubdubBorderSpin {
