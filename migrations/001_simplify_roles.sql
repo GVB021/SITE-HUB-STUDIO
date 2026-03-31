@@ -60,7 +60,27 @@ WHERE role IN (
 -- STEP 3: Convert user_studio_roles table
 -- ============================================
 
--- Convert roles to diretor
+-- First, delete duplicates that would conflict:
+-- If a membership has both 'studio_admin' and 'diretor', keep only one
+-- Delete 'diretor' roles that would conflict with roles being converted TO 'diretor'
+DELETE FROM user_studio_roles 
+WHERE role = 'diretor' 
+AND membership_id IN (
+  SELECT membership_id 
+  FROM user_studio_roles 
+  WHERE role IN ('studio_admin', 'engenheiro_audio')
+);
+
+-- Delete 'dublador' roles that would conflict with roles being converted TO 'dublador'
+DELETE FROM user_studio_roles 
+WHERE role = 'dublador' 
+AND membership_id IN (
+  SELECT membership_id 
+  FROM user_studio_roles 
+  WHERE role IN ('aluno', 'voice_actor', 'student', 'actor')
+);
+
+-- Now convert roles to diretor
 UPDATE user_studio_roles 
 SET role = 'diretor' 
 WHERE role IN (
