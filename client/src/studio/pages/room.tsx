@@ -963,6 +963,7 @@ export default function RecordingRoom() {
     lineIndex: number;
     characterName: string;
     voiceActorName: string;
+    voiceActorId: string;
   } | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
   const [directorFeedback, setDirectorFeedback] = useState<string>('');
@@ -1072,7 +1073,15 @@ export default function RecordingRoom() {
 
   const canTextControl = useMemo(() => {
     if (isPrivileged) return true;
-    return Boolean(user?.id && textControllerUserIds.has(user.id));
+    const hasControl = Boolean(user?.id && textControllerUserIds.has(user.id));
+    console.log("[Text Control] canTextControl calculated:", { 
+      isPrivileged, 
+      userId: user?.id, 
+      textControllerUserIds: Array.from(textControllerUserIds),
+      hasControl,
+      result: isPrivileged || hasControl
+    });
+    return hasControl;
   }, [isPrivileged, textControllerUserIds, user?.id]);
 
   const cancelPreroll = useCallback(() => {
@@ -1091,6 +1100,7 @@ export default function RecordingRoom() {
     (type: string, payload: any) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      console.log("[Text Control] Emitting event:", { type, payload });
       ws.send(JSON.stringify({ type, ...payload }));
     },
     [],
@@ -1183,7 +1193,20 @@ export default function RecordingRoom() {
             const incoming = Array.isArray(msg.controllerUserIds)
               ? msg.controllerUserIds
               : (msg.controllerUserId ? [msg.controllerUserId] : []);
+            console.log("[Text Control] Received text-control:state:", { 
+              controllerUserIds: incoming, 
+              myUserId: user?.id,
+              willHaveAccess: incoming.includes(user?.id || "") 
+            });
             setTextControllerUserIds(new Set(incoming.filter(Boolean)));
+            
+            // Show toast if user gained text control permission
+            if (!isPrivileged && incoming.includes(user?.id || "")) {
+              toast({ 
+                title: "Controle de Texto Concedido",
+                description: "Você agora pode clicar nas linhas e editar o roteiro."
+              });
+            }
             return;
           }
           if (msg.type === "recording:preroll") {
@@ -1257,6 +1280,7 @@ export default function RecordingRoom() {
                 lineIndex: msg.lineIndex,
                 characterName: msg.characterName,
                 voiceActorName: msg.voiceActorName,
+                voiceActorId: msg.voiceActorId,
               });
             }
             return;
@@ -1984,6 +2008,7 @@ export default function RecordingRoom() {
         lineIndex: currentLine,
         characterName: activeProfile.characterName,
         voiceActorName: activeProfile.voiceActorName,
+        voiceActorId: user?.id || '',
       });
       
       setApprovalStatus('pending');
@@ -2174,7 +2199,7 @@ export default function RecordingRoom() {
       // Emit WebSocket event to notify voice actor
       emitVideoEvent("take:approved", {
         takeId: pendingApprovalTake.takeId,
-        voiceActorId: pendingApprovalTake.voiceActorName,
+        voiceActorId: pendingApprovalTake.voiceActorId,
         feedback: feedback,
       });
       
@@ -2207,7 +2232,7 @@ export default function RecordingRoom() {
       // Emit WebSocket event to notify voice actor
       emitVideoEvent("take:rejected", {
         takeId: pendingApprovalTake.takeId,
-        voiceActorId: pendingApprovalTake.voiceActorName,
+        voiceActorId: pendingApprovalTake.voiceActorId,
         feedback: feedback || 'O diretor solicitou uma nova gravação.',
       });
       
