@@ -2171,6 +2171,13 @@ export default function RecordingRoom() {
         body: JSON.stringify({ feedback, setAsFinal: false }),
       });
       
+      // Emit WebSocket event to notify voice actor
+      emitVideoEvent("take:approved", {
+        takeId: pendingApprovalTake.takeId,
+        voiceActorId: pendingApprovalTake.voiceActorName,
+        feedback: feedback,
+      });
+      
       // Clear pending state
       setPendingApprovalTake(null);
       setApprovalStatus(null);
@@ -2186,24 +2193,22 @@ export default function RecordingRoom() {
         variant: "destructive" 
       });
     }
-  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes]);
+  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes, emitVideoEvent]);
 
   const handleRejectTake = useCallback(async (feedback: string) => {
     if (!pendingApprovalTake) return;
     
-    if (!feedback.trim()) {
-      toast({ 
-        title: "Feedback obrigatório", 
-        description: "Informe o motivo da rejeição",
-        variant: "destructive" 
-      });
-      return;
-    }
-    
     try {
       await authFetch(`/api/takes/${pendingApprovalTake.takeId}/reject`, {
         method: 'PATCH',
-        body: JSON.stringify({ feedback }),
+        body: JSON.stringify({ feedback: feedback || 'Sem feedback' }),
+      });
+      
+      // Emit WebSocket event to notify voice actor
+      emitVideoEvent("take:rejected", {
+        takeId: pendingApprovalTake.takeId,
+        voiceActorId: pendingApprovalTake.voiceActorName,
+        feedback: feedback || 'O diretor solicitou uma nova gravação.',
       });
       
       // Clear pending state
@@ -2221,7 +2226,7 @@ export default function RecordingRoom() {
         variant: "destructive" 
       });
     }
-  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes]);
+  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes, emitVideoEvent]);
 
   useEffect(() => {
     if (isCustomizing) return;
@@ -3251,7 +3256,7 @@ export default function RecordingRoom() {
             cleanupPreview();
           }
         }}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md fixed bottom-4 right-4 translate-x-0 translate-y-0">
             {approvalStatus === 'pending' && (
               <>
                 <DialogHeader>
@@ -3322,7 +3327,7 @@ export default function RecordingRoom() {
             videoRef.current.volume = 1;
           }
         }}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg fixed bottom-4 right-4 translate-x-0 translate-y-0">
             <DialogHeader>
               <DialogTitle>Revisar Take</DialogTitle>
               <DialogDescription>
@@ -3336,6 +3341,12 @@ export default function RecordingRoom() {
                   const video = videoRef.current;
                   if (!video) return;
                   
+                  // Cleanup previous preview if exists
+                  if (approvalAudioRef.current) {
+                    approvalAudioRef.current.pause();
+                    approvalAudioRef.current = null;
+                  }
+                  
                   // Mute video original audio
                   video.volume = 0;
                   
@@ -3346,7 +3357,27 @@ export default function RecordingRoom() {
                   const audio = new Audio(pendingApprovalTake.audioUrl);
                   approvalAudioRef.current = audio;
                   
-                  // Sync audio with video
+                  const endTime = pendingApprovalTake.startTimeSeconds + pendingApprovalTake.durationSeconds;
+                  
+                  // Cleanup function
+                  const cleanup = () => {
+                    video.removeEventListener('play', syncPlay);
+                    video.removeEventListener('pause', syncPause);
+                    video.removeEventListener('seeked', syncSeek);
+                    video.removeEventListener('timeupdate', checkEnd);
+                    video.volume = 1;
+                    audio.pause();
+                  };
+                  
+                  // Check if video passed the take end time
+                  const checkEnd = () => {
+                    if (video.currentTime >= endTime) {
+                      video.pause();
+                      cleanup();
+                    }
+                  };
+                  
+                  // Sync audio with video on play
                   const syncPlay = () => {
                     const offset = video.currentTime - pendingApprovalTake.startTimeSeconds;
                     if (offset >= 0 && offset <= pendingApprovalTake.durationSeconds) {
@@ -3355,10 +3386,12 @@ export default function RecordingRoom() {
                     }
                   };
                   
+                  // Pause audio when video pauses
                   const syncPause = () => {
                     audio.pause();
                   };
                   
+                  // Sync audio position when video seeks
                   const syncSeek = () => {
                     const offset = video.currentTime - pendingApprovalTake.startTimeSeconds;
                     if (offset >= 0 && offset <= pendingApprovalTake.durationSeconds) {
@@ -3371,15 +3404,14 @@ export default function RecordingRoom() {
                   video.addEventListener('play', syncPlay);
                   video.addEventListener('pause', syncPause);
                   video.addEventListener('seeked', syncSeek);
+                  video.addEventListener('timeupdate', checkEnd);
                   
-                  audio.onended = () => {
-                    video.removeEventListener('play', syncPlay);
-                    video.removeEventListener('pause', syncPause);
-                    video.removeEventListener('seeked', syncSeek);
-                    video.volume = 1;
-                  };
+                  audio.onended = cleanup;
                   
-                  video.play().catch(() => {});
+                  // Start playback
+                  video.play().then(() => {
+                    audio.play().catch(() => {});
+                  }).catch(() => {});
                 }}
                 className="w-full"
                 size="lg"
