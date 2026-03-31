@@ -1,5 +1,4 @@
 import { Globe } from "lucide-react";
-import { ThemeToggleButton } from "@/components/nav/ThemeToggleButton";
 
 export function LanguageThemePill({
   lang,
@@ -33,8 +32,6 @@ export function LanguageThemePill({
           </>
         )}
       </button>
-      <div className="w-px h-6 bg-border/70" />
-      <ThemeToggleButton />
     </div>
   );
 }
