@@ -60,25 +60,26 @@ WHERE role IN (
 -- STEP 3: Convert user_studio_roles table
 -- ============================================
 
--- First, delete duplicates that would conflict:
--- If a membership has both 'studio_admin' and 'diretor', keep only one
+-- First, delete duplicates that would conflict using CTEs
 -- Delete 'diretor' roles that would conflict with roles being converted TO 'diretor'
-DELETE FROM user_studio_roles 
-WHERE role = 'diretor' 
-AND membership_id IN (
+WITH roles_to_convert AS (
   SELECT membership_id 
   FROM user_studio_roles 
   WHERE role IN ('studio_admin', 'engenheiro_audio')
-);
+)
+DELETE FROM user_studio_roles 
+WHERE role = 'diretor' 
+AND membership_id IN (SELECT membership_id FROM roles_to_convert);
 
 -- Delete 'dublador' roles that would conflict with roles being converted TO 'dublador'
-DELETE FROM user_studio_roles 
-WHERE role = 'dublador' 
-AND membership_id IN (
+WITH roles_to_convert AS (
   SELECT membership_id 
   FROM user_studio_roles 
   WHERE role IN ('aluno', 'voice_actor', 'student', 'actor')
-);
+)
+DELETE FROM user_studio_roles 
+WHERE role = 'dublador' 
+AND membership_id IN (SELECT membership_id FROM roles_to_convert);
 
 -- Now convert roles to diretor
 UPDATE user_studio_roles 
