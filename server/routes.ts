@@ -967,6 +967,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!isAdmin && takeRecord.voiceActorId !== userId) {
         return res.status(403).json({ message: "Voce so pode excluir seus proprios takes" });
       }
+
+      // Delete audio file from Supabase Storage or local disk
+      const audioUrl = (takeRecord as any).audioUrl || "";
+      if (audioUrl) {
+        const supabaseParsed = parseSupabaseStorageUrl(audioUrl);
+        if (supabaseParsed && isSupabaseConfigured()) {
+          try {
+            await deleteFromSupabaseStorage(supabaseParsed);
+          } catch (e: any) {
+            logger.warn("[Take Delete] Failed to delete from Supabase Storage", { takeId: req.params.id, message: e?.message });
+          }
+        } else if (audioUrl.startsWith("/uploads/")) {
+          const localPath = path.join(process.cwd(), "public", audioUrl);
+          try {
+            if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+          } catch (e: any) {
+            logger.warn("[Take Delete] Failed to delete local file", { takeId: req.params.id, path: localPath, message: e?.message });
+          }
+        }
+      }
+
       await storage.deleteTake(req.params.id);
       res.status(200).json({ message: "Take excluido" });
     } catch (err) {

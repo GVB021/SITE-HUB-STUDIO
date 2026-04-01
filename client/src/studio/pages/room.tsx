@@ -1981,7 +1981,7 @@ export default function RecordingRoom() {
             <div className="px-6 py-5">
               <audio ref={takePreviewAudioRef} preload="none" />
               <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
-                {(isPrivileged ? takesList : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id)).map((take: any) => (
+                {(isDirector ? takesList.filter((t: any) => t.status === "approved") : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id)).map((take: any) => (
                   <div key={take.id} className="flex flex-col gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="flex items-center gap-3">
                       <button
@@ -2030,14 +2030,33 @@ export default function RecordingRoom() {
                       >
                         <Download className="w-4 h-4" />
                       </button>
+                      {isDirector && (
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm("Excluir este take definitivamente? O arquivo de áudio também será removido do storage.")) return;
+                            try {
+                              await authFetch(`/api/takes/${take.id}`, { method: "DELETE" });
+                              toast({ title: "Take excluído", description: "O take e seu arquivo de áudio foram removidos." });
+                              refetchTakes();
+                            } catch (err: any) {
+                              toast({ title: "Erro ao excluir", description: err.message, variant: "destructive" });
+                            }
+                          }}
+                          className="p-2 rounded-lg transition-colors"
+                          style={{ color: "hsl(0 72% 55%)", background: "rgba(239,68,68,0.08)" }}
+                          title="Excluir take"
+                          data-testid={`button-delete-take-popup-${take.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                     
-                    {isDirector && (
-                      <TakeReviewActions
-                        takeId={take.id}
-                        currentStatus={take.status || "pending"}
-                        sessionId={sessionId}
-                      />
+                    {isDirector && take.directorFeedback && (
+                      <div className="text-xs rounded p-2 border-l-2" style={{ background: "rgba(255,255,255,0.03)", borderColor: "hsl(160 84% 39%)" }}>
+                        <div className="font-medium mb-1" style={{ color: "hsl(160 84% 39%)" }}>✅ Feedback:</div>
+                        <p style={{ color: "hsl(var(--foreground) / 0.70)" }}>{take.directorFeedback}</p>
+                      </div>
                     )}
                     
                     {!isDirector && take.status !== "pending" && take.directorFeedback && (
