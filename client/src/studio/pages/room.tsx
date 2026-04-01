@@ -40,6 +40,8 @@ import { Button } from "@studio/components/ui/button";
 import { Textarea } from "@studio/components/ui/textarea";
 import { formatTimecode, parseTimecode, parseUniversalTimecodeToSeconds } from "@studio/lib/timecode";
 import { cn } from "@studio/lib/utils";
+import { WelcomeDialog } from "@studio/components/WelcomeDialog";
+import { RoomTour } from "@studio/components/RoomTour";
 
 import {
   requestMicrophone,
@@ -643,6 +645,35 @@ export default function RecordingRoom() {
   const [lineEdits, setLineEdits] = useState<Record<number, string>>({});
   const [takePreviewId, setTakePreviewId] = useState<string | null>(null);
   const takePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Room tour states
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+
+  // Check if user has seen the tour
+  useEffect(() => {
+    const hasSeenTour = localStorage.getItem("vhub_room_tour_completed");
+    if (!hasSeenTour) {
+      const timer = setTimeout(() => setShowWelcome(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleStartTour = useCallback(() => {
+    setShowWelcome(false);
+    setShowTour(true);
+  }, []);
+
+  const handleSkipTour = useCallback(() => {
+    setShowWelcome(false);
+    localStorage.setItem("vhub_room_tour_completed", "true");
+  }, []);
+
+  const handleCompleteTour = useCallback(() => {
+    setShowTour(false);
+    localStorage.setItem("vhub_room_tour_completed", "true");
+    toast({ title: "Tour concluído!", description: "Você já está pronto para usar a sala de dublagem." });
+  }, [toast]);
 
   // Unified role checks via hook
   const { sessionRole: myStudioRole, isPrivileged, isDirector } = useUserRole({ user, session });
@@ -3023,6 +3054,14 @@ export default function RecordingRoom() {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+
+      {showWelcome && (
+        <WelcomeDialog onStartTour={handleStartTour} onSkip={handleSkipTour} />
+      )}
+
+      {showTour && (
+        <RoomTour onComplete={handleCompleteTour} onSkip={handleCompleteTour} />
       )}
     </div>
   );
