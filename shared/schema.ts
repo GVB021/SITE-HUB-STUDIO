@@ -115,10 +115,12 @@ export const productions = pgTable("productions", {
   videoUrl: text("video_url"),
   scriptJson: text("script_json"),
   status: text("status").notNull().default("planned"),
+  isPublic: boolean("is_public").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
     studioIdIdx: index("productions_studio_id_idx").on(table.studioId),
+    isPublicIdx: index("productions_is_public_idx").on(table.isPublic),
   };
 });
 

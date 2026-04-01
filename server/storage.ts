@@ -66,6 +66,7 @@ export interface IStorage {
   createStudio(studio: InsertStudio, creatorId: string, studioAdminUserId?: string): Promise<Studio>;
 
   getProductions(studioId: string): Promise<Production[]>;
+  getPublicProductions(): Promise<Production[]>;
   getProduction(id: string): Promise<Production | undefined>;
   createProduction(production: InsertProduction): Promise<Production>;
 
@@ -228,6 +229,10 @@ export class DatabaseStorage implements IStorage {
 
   async getProductions(studioId: string): Promise<Production[]> {
     return await db.select().from(productions).where(eq(productions.studioId, studioId));
+  }
+
+  async getPublicProductions(): Promise<Production[]> {
+    return await db.select().from(productions).where(eq(productions.isPublic, true));
   }
 
   async getProduction(id: string): Promise<Production | undefined> {

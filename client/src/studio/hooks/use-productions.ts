@@ -15,6 +15,14 @@ export function useProductions(studioId: string) {
   });
 }
 
+export function usePublicProductions() {
+  return useQuery({
+    queryKey: ["/api/productions/public"],
+    queryFn: () => authFetch("/api/productions/public"),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
 export function useProduction(studioId: string, id: string) {
   const url = buildUrl(api.productions.get.path, { studioId, id });
   return useQuery({

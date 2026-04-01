@@ -619,6 +619,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // PRODUCTIONS
+  app.get("/api/productions/public", requireAuth, async (req, res) => {
+    const publicProds = await storage.getPublicProductions();
+    res.status(200).json(publicProds);
+  });
+
   app.get("/api/studios/:studioId/productions", requireAuth, requireStudioAccess, async (req, res) => {
     const prods = await storage.getProductions(req.params.studioId);
     res.status(200).json(prods);

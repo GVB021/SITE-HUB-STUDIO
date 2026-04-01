@@ -11,7 +11,7 @@ import { Textarea } from "@studio/components/ui/textarea";
 import {
   Plus, Film, Search, MoreVertical, Upload, UserPlus,
   Settings2, FileJson, Download, Loader2, Trash2, Save,
-  Clock, MessageSquare, ClipboardPaste
+  Clock, MessageSquare, ClipboardPaste, Globe
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
@@ -29,6 +29,7 @@ import {
 import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { pt } from "@studio/lib/i18n";
 import { parseUniversalTimecodeToSeconds } from "@studio/lib/timecode";
+import { ProductionWizard } from "@studio/components/production-wizard";
 
 interface ScriptLine {
   character: string;
@@ -46,21 +47,24 @@ const Productions = memo(function Productions({ studioId }: { studioId: string }
   const { canCreateProductions } = useStudioRole(studioId);
 
   const [search, setSearch] = useState("");
-  const [isCreateOpen, setIsOpen] = useState(false);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedProdId, setSelectedProdId] = useState<string | null>(null);
   const [isManageOpen, setIsManageOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: "", description: "", videoUrl: "" });
 
   const filtered = productions?.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleCreate = async () => {
-    if (!formData.name) return;
-    await createProd.mutateAsync({ ...formData, status: "planned", scriptJson: undefined });
-    setIsOpen(false);
-    setFormData({ name: "", description: "", videoUrl: "" });
-    toast({ title: "Producao criada" });
+  const handleWizardSubmit = async (data: any) => {
+    await createProd.mutateAsync({
+      name: data.name,
+      description: data.description,
+      videoUrl: data.videoUrl,
+      scriptJson: data.scriptJson || undefined,
+      status: data.status,
+      isPublic: data.isPublic,
+    });
+    toast({ title: "Produção criada com sucesso!" });
   };
 
   return (
@@ -69,58 +73,18 @@ const Productions = memo(function Productions({ studioId }: { studioId: string }
         title={pt.productions.title}
         subtitle="Gerencie seus projetos de dublagem"
         action={canCreateProductions ? (
-          <Dialog open={isCreateOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5 press-effect">
-                <Plus className="w-3.5 h-3.5" />
-                {pt.productions.newProduction}
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Criar Producao</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <FieldGroup label={pt.productions.name}>
-                  <Input
-                    placeholder="ex: Episodio 1 — Dragao"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    data-testid="input-production-name"
-                  />
-                </FieldGroup>
-                <FieldGroup label={pt.productions.description}>
-                  <Textarea
-                    placeholder="Detalhes da producao..."
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    className="resize-none"
-                    rows={3}
-                    data-testid="input-production-description"
-                  />
-                </FieldGroup>
-                <FieldGroup label={pt.productions.videoUrl}>
-                  <Input
-                    placeholder="https://..."
-                    value={formData.videoUrl}
-                    onChange={(e) => setFormData(prev => ({ ...prev, videoUrl: e.target.value }))}
-                    data-testid="input-production-url"
-                  />
-                </FieldGroup>
-              </div>
-              <DialogFooter>
-                <Button
-                  onClick={handleCreate}
-                  disabled={!formData.name || createProd.isPending}
-                  className="press-effect"
-                  data-testid="button-create-production"
-                >
-                  {createProd.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                  {createProd.isPending ? pt.productions.creating : pt.productions.create}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <>
+            <Button size="sm" className="gap-1.5 press-effect" onClick={() => setIsWizardOpen(true)}>
+              <Plus className="w-3.5 h-3.5" />
+              {pt.productions.newProduction}
+            </Button>
+            <ProductionWizard
+              open={isWizardOpen}
+              onOpenChange={setIsWizardOpen}
+              onSubmit={handleWizardSubmit}
+              isSubmitting={createProd.isPending}
+            />
+          </>
         ) : undefined}
       />
 
@@ -198,8 +162,14 @@ const Productions = memo(function Productions({ studioId }: { studioId: string }
               {prod.description || "Sem descricao."}
             </p>
 
-            <div className="mt-4">
+            <div className="mt-4 flex items-center gap-2">
               <StatusBadge status={prod.status} />
+              {prod.isPublic && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Globe className="w-3 h-3" />
+                  Público
+                </span>
+              )}
             </div>
           </div>
         ))}
