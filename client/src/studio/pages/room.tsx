@@ -2899,23 +2899,26 @@ export default function RecordingRoom() {
 
       {/* Director Approval Popup */}
       {isDirector && pendingApprovalTake && !approvalStatus && (
-        <Dialog open={true} onOpenChange={() => {
-          setPendingApprovalTake(null);
-          if (approvalAudioRef.current) {
-            approvalAudioRef.current.pause();
-            approvalAudioRef.current = null;
-          }
-          if (videoRef.current) {
-            videoRef.current.volume = 1;
-          }
-        }}>
-          <DialogContent className="max-w-xs fixed bottom-4 left-4 translate-x-0 translate-y-0 p-4" style={{ background: "rgba(10,10,22,0.82)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
-            <DialogHeader className="pb-1">
-              <DialogTitle className="text-sm">Revisar Take</DialogTitle>
-              <DialogDescription className="text-xs">
-                {pendingApprovalTake.voiceActorName} - {pendingApprovalTake.characterName} - Linha {pendingApprovalTake.lineIndex + 1}
-              </DialogDescription>
-            </DialogHeader>
+          <div className="fixed bottom-4 left-4 z-50 w-72 rounded-xl p-4" style={{ background: "rgba(12,12,24,0.90)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 8px 32px rgba(0,0,0,0.55)" }}>
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Revisar Take</p>
+                <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {pendingApprovalTake.voiceActorName} - {pendingApprovalTake.characterName} - Linha {pendingApprovalTake.lineIndex + 1}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setPendingApprovalTake(null);
+                  if (approvalAudioRef.current) { approvalAudioRef.current.pause(); approvalAudioRef.current = null; }
+                  if (videoRef.current) { videoRef.current.volume = 1; }
+                }}
+                className="ml-2 mt-0.5 opacity-60 hover:opacity-100 transition-opacity"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
             
             <div className="space-y-2">
               <Button 
@@ -3045,8 +3048,7 @@ export default function RecordingRoom() {
                 </Button>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          </div>
       )}
     </div>
   );
