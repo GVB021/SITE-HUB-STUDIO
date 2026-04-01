@@ -150,18 +150,15 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                           <SelectValue placeholder="Selecionar producao..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="" disabled className="font-semibold text-muted-foreground">
-                            Minhas Producoes
-                          </SelectItem>
                           {productions?.map((p) => (
                             <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                           ))}
                           
                           {publicProductions && publicProductions.filter((p: any) => p.studioId !== studioId).length > 0 && (
                             <>
-                              <SelectItem value="" disabled className="font-semibold text-muted-foreground border-t mt-1 pt-1">
-                                Producoes Publicas (Outros Estudios)
-                              </SelectItem>
+                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t mt-1 pt-2">
+                                Produções Públicas (Outros Estúdios)
+                              </div>
                               {publicProductions
                                 .filter((p: any) => p.studioId !== studioId)
                                 .map((p: any) => (
