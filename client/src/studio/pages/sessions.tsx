@@ -1,9 +1,9 @@
-import { useEffect, useState, memo } from "react";
+import { useEffect, useState, memo, useMemo } from "react";
 import { useSessions, useCreateSession } from "@studio/hooks/use-sessions";
-import { useProductions } from "@studio/hooks/use-productions";
+import { useProductions, usePublicProductions } from "@studio/hooks/use-productions";
 import { Button } from "@studio/components/ui/button";
 import { Input } from "@studio/components/ui/input";
-import { Calendar as CalendarIcon, Clock, Plus, Video, Film, Loader2, Trash2, Lock } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Plus, Video, Film, Loader2, Trash2, Lock, Globe } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
@@ -29,6 +29,7 @@ import { computeSessionStatus, sessionEntryAllowed, formatCountdownTime } from "
 const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
   const { data: sessions, isLoading } = useSessions(studioId);
   const { data: productions } = useProductions(studioId);
+  const { data: publicProductions } = usePublicProductions();
   const createSession = useCreateSession(studioId);
   const { toast } = useToast();
   const [location, navigate] = useLocation();
@@ -101,6 +102,15 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
     ? productions?.find(p => p.id === filterProductionId)
     : null;
 
+  // Combinar produções do estúdio + públicas de outros estúdios
+  const availableProductions = useMemo(() => {
+    const ownProductions = productions || [];
+    const externalPublicProductions = (publicProductions || []).filter(
+      (p: any) => p.studioId !== studioId
+    );
+    return [...ownProductions, ...externalPublicProductions];
+  }, [productions, publicProductions, studioId]);
+
   return (
     <PageSection>
       <PageHeader
@@ -140,9 +150,30 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                           <SelectValue placeholder="Selecionar producao..." />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="" disabled className="font-semibold text-muted-foreground">
+                            Minhas Producoes
+                          </SelectItem>
                           {productions?.map((p) => (
                             <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                           ))}
+                          
+                          {publicProductions && publicProductions.filter((p: any) => p.studioId !== studioId).length > 0 && (
+                            <>
+                              <SelectItem value="" disabled className="font-semibold text-muted-foreground border-t mt-1 pt-1">
+                                Producoes Publicas (Outros Estudios)
+                              </SelectItem>
+                              {publicProductions
+                                .filter((p: any) => p.studioId !== studioId)
+                                .map((p: any) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-blue-400" />
+                                      {p.name}
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     </FieldGroup>
@@ -208,7 +239,8 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
             ))}
           </div>
         ) : filteredSessions.length ? filteredSessions.map((session) => {
-          const production = productions?.find((p) => p.id === session.productionId);
+          const production = availableProductions?.find((p: any) => p.id === session.productionId);
+          const isExternalProduction = production && production.studioId !== studioId;
           const computedStatus = computeSessionStatus(session.scheduledAt, session.durationMinutes ?? 60);
           const canEnter = !isRestrictedRole || sessionEntryAllowed(session.scheduledAt, 5);
           const countdown = !canEnter ? formatCountdownTime(session.scheduledAt, 5) : null;
@@ -241,6 +273,12 @@ const Sessions = memo(function Sessions({ studioId }: { studioId: string }) {
                     <span className="flex items-center gap-1">
                       <Film className="w-3 h-3" />
                       {production?.name || "Producao desconhecida"}
+                      {isExternalProduction && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 ml-1">
+                          <Globe className="w-2.5 h-2.5" />
+                          Externo
+                        </span>
+                      )}
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
