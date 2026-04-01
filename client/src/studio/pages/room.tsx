@@ -1981,7 +1981,15 @@ export default function RecordingRoom() {
             <div className="px-6 py-5">
               <audio ref={takePreviewAudioRef} preload="none" />
               <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
-                {(isDirector ? takesList.filter((t: any) => t.status === "approved") : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id)).map((take: any) => (
+                {(() => {
+                  const visibleTakes = isDirector
+                    ? takesList.filter((t: any) => t.status === "approved")
+                    : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id);
+                  return visibleTakes.length === 0 ? (
+                    <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
+                      {isDirector ? "Nenhum take aprovado nesta sessao" : "Nenhum take gravado nesta sessao"}
+                    </div>
+                  ) : visibleTakes.map((take: any) => (
                   <div key={take.id} className="flex flex-col gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="flex items-center gap-3">
                       <button
@@ -2073,12 +2081,8 @@ export default function RecordingRoom() {
                       </div>
                     )}
                   </div>
-                ))}
-                {takesList.length === 0 && (
-                  <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
-                    Nenhum take gravado nesta sessao
-                  </div>
-                )}
+                  ));
+                })()}
               </div>
             </div>
           </div>
