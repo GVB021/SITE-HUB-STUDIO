@@ -1738,12 +1738,7 @@ export default function RecordingRoom() {
         body: JSON.stringify({ feedback, setAsFinal: false }),
       });
       
-      // Emit WebSocket event to notify voice actor
-      emitVideoEvent("take:approved", {
-        takeId: pendingApprovalTake.takeId,
-        voiceActorId: pendingApprovalTake.voiceActorId,
-        feedback: feedback,
-      });
+      // Backend already broadcasts via WebSocket to notify voice actor
       
       // Clear pending state
       setPendingApprovalTake(null);
@@ -1760,7 +1755,7 @@ export default function RecordingRoom() {
         variant: "destructive" 
       });
     }
-  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes, emitVideoEvent]);
+  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes]);
 
   const handleRejectTake = useCallback(async (feedback: string) => {
     if (!pendingApprovalTake) return;
@@ -1771,12 +1766,7 @@ export default function RecordingRoom() {
         body: JSON.stringify({ feedback: feedback || 'Sem feedback' }),
       });
       
-      // Emit WebSocket event to notify voice actor
-      emitVideoEvent("take:rejected", {
-        takeId: pendingApprovalTake.takeId,
-        voiceActorId: pendingApprovalTake.voiceActorId,
-        feedback: feedback || 'O diretor solicitou uma nova gravação.',
-      });
+      // Backend already broadcasts via WebSocket to notify voice actor
       
       // Clear pending state
       setPendingApprovalTake(null);
@@ -1793,7 +1783,7 @@ export default function RecordingRoom() {
         variant: "destructive" 
       });
     }
-  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes, emitVideoEvent]);
+  }, [pendingApprovalTake, authFetch, toast, cleanupPreview, refetchTakes]);
 
   useEffect(() => {
     if (isCustomizing) return;

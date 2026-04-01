@@ -23,7 +23,8 @@ interface SyncMessage {
     | "text-control:revoke-controller"
     | "text-control:update-line"
     | "take:approved"
-    | "take:rejected";
+    | "take:rejected"
+    | "take:pending-approval";
   currentTime?: number;
   lineIndex?: number;
   targetUserId?: string;
@@ -40,9 +41,14 @@ interface SyncMessage {
   // Take review fields
   takeId?: string;
   voiceActorId?: string;
+  voiceActorName?: string;
   feedback?: string;
   isFinal?: boolean;
   reviewedBy?: string;
+  audioUrl?: string;
+  startTimeSeconds?: number;
+  durationSeconds?: number;
+  characterName?: string;
 }
 
 export const rooms = new Map<string, Set<WebSocket & { userId?: string; role?: string; name?: string; sessionId?: string }>>();

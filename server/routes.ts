@@ -999,7 +999,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const role = participant?.role?.toLowerCase() || "";
       const userRole = (req.user as any)?.role;
-      const isDirector = ["diretor", "director"].includes(role) || userRole === "platform_owner";
+      
+      // Check session participant role, platform role, or studio-level role
+      let isDirector = ["diretor", "director"].includes(role) || ["platform_owner", "diretor"].includes(userRole);
+      
+      // Also check studio-level roles if not already director
+      if (!isDirector) {
+        const session = await storage.getSession(take.sessionId);
+        if (session) {
+          const studioRoles = await storage.getUserRolesInStudio(userId, session.studioId);
+          isDirector = studioRoles.some(r => ["diretor", "director", "platform_owner"].includes(r.toLowerCase()));
+        }
+      }
 
       logger.info("[Approve Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
 
@@ -1084,7 +1095,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const role = participant?.role?.toLowerCase() || "";
       const userRole = (req.user as any)?.role;
-      const isDirector = ["diretor", "director"].includes(role) || userRole === "platform_owner";
+      
+      // Check session participant role, platform role, or studio-level role
+      let isDirector = ["diretor", "director"].includes(role) || ["platform_owner", "diretor"].includes(userRole);
+      
+      // Also check studio-level roles if not already director
+      if (!isDirector) {
+        const session = await storage.getSession(take.sessionId);
+        if (session) {
+          const studioRoles = await storage.getUserRolesInStudio(userId, session.studioId);
+          isDirector = studioRoles.some(r => ["diretor", "director", "platform_owner"].includes(r.toLowerCase()));
+        }
+      }
 
       logger.info("[Reject Take] Role check:", { participantRole: participant?.role, normalizedRole: role, userRole, isDirector });
 
