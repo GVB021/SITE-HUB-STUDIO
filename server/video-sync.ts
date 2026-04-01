@@ -162,8 +162,8 @@ async function getWsIdentity(sessionId: string, req: any, queryUserId?: string |
   const name = String(userRow.display_name || userRow.full_name || userRow.email || "Usuario");
 
   // ANY authenticated user can connect - no role checks needed
-  // The fact they have a valid userId and reached this point means they can access the session
-  const studioRole = platformRole === "platform_owner" ? "platform_owner" : "participant";
+  // Use the actual normalized platform role so isPrivilegedStudioRole works correctly
+  const studioRole = platformRole;
   
   console.log('[WebSocket Auth] SUCCESS:', name, '| Studio role:', studioRole, '| User can now sync with session');
   return { userId, role: studioRole, name, platformRole };
@@ -256,7 +256,7 @@ export function setupVideoSync(httpServer: Server) {
           } else if (msg.type === "text-control:clear-controller") {
             textControllerSessions.delete(sessionId);
           } else if (msg.type === "text-control:set-controllers") {
-            logger.info("[Text Control] Received set-controllers:", { sessionId, targetUserIds: msg.targetUserIds });
+            console.log("[Text Control] Received set-controllers:", { sessionId, targetUserIds: msg.targetUserIds });
             setTextControllers(sessionId, msg.targetUserIds || []);
           } else if (msg.type === "text-control:grant-controller" && msg.targetUserId) {
             const next = new Set(getTextControllers(sessionId));
@@ -271,7 +271,7 @@ export function setupVideoSync(httpServer: Server) {
           const permissions = Array.from(tempPermissions.get(sessionId) || []);
           const globalControl = globalControlSessions.get(sessionId) || false;
           const controllerUserIds = Array.from(getTextControllers(sessionId));
-          logger.info("[Text Control] Broadcasting state:", { sessionId, controllerUserIds, roomSize: room.size });
+          console.log("[Text Control] Broadcasting state:", { sessionId, controllerUserIds, roomSize: room.size });
           broadcast(room as any, { type: "permission-sync", permissions, globalControl } satisfies SyncMessage);
           broadcast(room as any, { type: "text-control:state", controllerUserIds } satisfies SyncMessage);
           return;
