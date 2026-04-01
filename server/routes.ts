@@ -629,10 +629,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(prods);
   });
 
-  app.get("/api/studios/:studioId/productions/:id", requireAuth, requireStudioAccess, async (req, res) => {
+  app.get("/api/studios/:studioId/productions/:id", requireAuth, async (req, res) => {
     const prod = await storage.getProduction(req.params.id);
     if (!prod) return res.status(404).json({ message: "Production not found" });
     if (prod.studioId !== req.params.studioId) return res.status(403).json({ message: "Acesso negado" });
+    
+    // Allow access if production is public OR user has studio access
+    if (!(prod as any).isPublic) {
+      // Not public, check studio access
+      const userId = (req.user as any)?.id;
+      const roles = await storage.getUserRolesInStudio(userId, req.params.studioId);
+      if (!roles || roles.length === 0) {
+        return res.status(403).json({ message: "Acesso negado ao estudio" });
+      }
+    }
+    
     res.status(200).json(prod);
   });
 
