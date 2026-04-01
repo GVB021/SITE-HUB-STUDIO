@@ -1982,12 +1982,12 @@ export default function RecordingRoom() {
               <audio ref={takePreviewAudioRef} preload="none" />
               <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
                 {(() => {
-                  const visibleTakes = isDirector
-                    ? takesList.filter((t: any) => t.status === "approved")
+                  const visibleTakes = isPrivileged
+                    ? takesList
                     : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id);
                   return visibleTakes.length === 0 ? (
                     <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
-                      {isDirector ? "Nenhum take aprovado nesta sessao" : "Nenhum take gravado nesta sessao"}
+                      {isPrivileged ? "Nenhum take gravado nesta sessao" : "Nenhum take gravado nesta sessao"}
                     </div>
                   ) : visibleTakes.map((take: any) => (
                   <div key={take.id} className="flex flex-col gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -2335,15 +2335,17 @@ export default function RecordingRoom() {
             </button>
           )}
           <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
-          <button
-            onClick={() => setTakesPopupOpen(true)}
-            className="transition-colors"
-            style={{ color: "hsl(var(--muted-foreground))" }}
-            data-testid="button-open-takes-popup"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" style={{ color: "hsl(160 84% 60%)" }} />
-            <span className="hidden sm:inline">{takeCount} take{takeCount !== 1 ? "s" : ""}</span>
-          </button>
+          {isPrivileged && (
+            <button
+              onClick={() => setTakesPopupOpen(true)}
+              className="transition-colors"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+              data-testid="button-open-takes-popup"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" style={{ color: "hsl(160 84% 60%)" }} />
+              <span className="hidden sm:inline">{takeCount} take{takeCount !== 1 ? "s" : ""}</span>
+            </button>
+          )}
           <div className="hidden sm:block w-px h-4" style={{ background: "hsl(var(--border))" }} />
           <button
             onClick={() => setDeviceSettingsOpen(true)}
