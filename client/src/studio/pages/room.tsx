@@ -2909,15 +2909,15 @@ export default function RecordingRoom() {
             videoRef.current.volume = 1;
           }
         }}>
-          <DialogContent className="max-w-lg fixed bottom-4 right-4 translate-x-0 translate-y-0">
-            <DialogHeader>
-              <DialogTitle>Revisar Take</DialogTitle>
-              <DialogDescription>
+          <DialogContent className="max-w-xs fixed bottom-4 left-4 translate-x-0 translate-y-0 p-4" style={{ background: "rgba(10,10,22,0.82)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.10)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+            <DialogHeader className="pb-1">
+              <DialogTitle className="text-sm">Revisar Take</DialogTitle>
+              <DialogDescription className="text-xs">
                 {pendingApprovalTake.voiceActorName} - {pendingApprovalTake.characterName} - Linha {pendingApprovalTake.lineIndex + 1}
               </DialogDescription>
             </DialogHeader>
             
-            <div className="space-y-4">
+            <div className="space-y-2">
               <Button 
                 onClick={() => {
                   const video = videoRef.current;
@@ -3009,39 +3009,38 @@ export default function RecordingRoom() {
                     audio.play().catch(() => {});
                   }).catch(() => {});
                 }}
-                className="w-full"
-                size="lg"
+                className="w-full h-8 text-xs"
+                size="sm"
               >
-                <Play className="w-4 h-4 mr-2" />
+                <Play className="w-3 h-3 mr-1.5" />
                 Play Preview (Sincronizado)
               </Button>
               
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Feedback (opcional)
-                </label>
-                <Textarea
-                  value={directorFeedback}
-                  onChange={(e) => setDirectorFeedback(e.target.value)}
-                  placeholder="Deixe um comentário para o dublador..."
-                  rows={3}
-                />
-              </div>
+              <Textarea
+                value={directorFeedback}
+                onChange={(e) => setDirectorFeedback(e.target.value)}
+                placeholder="Feedback (opcional)..."
+                rows={2}
+                className="text-xs resize-none"
+                style={{ minHeight: "unset" }}
+              />
               
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 <Button
                   onClick={() => handleApproveTake(directorFeedback)}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 h-8 text-xs bg-green-600 hover:bg-green-700"
+                  size="sm"
                 >
-                  <Check className="w-4 h-4 mr-2" />
+                  <Check className="w-3 h-3 mr-1" />
                   Aprovar
                 </Button>
                 <Button
                   onClick={() => handleRejectTake(directorFeedback)}
                   variant="destructive"
-                  className="flex-1"
+                  className="flex-1 h-8 text-xs"
+                  size="sm"
                 >
-                  <X className="w-4 h-4 mr-2" />
+                  <X className="w-3 h-3 mr-1" />
                   Rejeitar
                 </Button>
               </div>
