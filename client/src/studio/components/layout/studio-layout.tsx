@@ -2,6 +2,7 @@ import React from "react";
 import { SidebarProvider, SidebarTrigger } from "@studio/components/ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { useAuth } from "@studio/hooks/use-auth";
+import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
 
@@ -12,6 +13,8 @@ interface StudioLayoutProps {
 
 export function StudioLayout({ studioId, children }: StudioLayoutProps) {
   const { user } = useAuth();
+  const { hasMinRole } = useStudioRole(studioId);
+  const isRestrictedRole = !hasMinRole("diretor");
 
   return (
     <SidebarProvider>
@@ -28,10 +31,12 @@ export function StudioLayout({ studioId, children }: StudioLayoutProps) {
           <div className="absolute -bottom-24 left-[-8rem] w-[26rem] h-[26rem] rounded-full bg-primary/8 blur-3xl opacity-70" />
         </div>
 
-        <AppSidebar studioId={studioId} />
+        {!isRestrictedRole && <AppSidebar studioId={studioId} />}
         <div className="flex flex-col flex-1 w-full overflow-hidden min-w-0 relative z-10">
           <header className="flex h-16 shrink-0 items-center gap-4 px-6 sticky top-0 z-50 border-b border-border/60 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/50 shadow-sm">
-            <SidebarTrigger className="-ml-2 h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors rounded-full" data-testid="button-sidebar-trigger" />
+            {!isRestrictedRole && (
+              <SidebarTrigger className="-ml-2 h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors rounded-full" data-testid="button-sidebar-trigger" />
+            )}
             <div className="flex-1" />
             
             <div className="flex items-center gap-2">

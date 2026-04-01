@@ -44,7 +44,9 @@ export const AppSidebar = memo(function AppSidebar({ studioId }: AppSidebarProps
       items.push({ title: pt.nav.productions, url: `/hub-dub/studio/${studioId}/productions`, icon: Film });
     }
     items.push({ title: pt.nav.sessions, url: `/hub-dub/studio/${studioId}/sessions`, icon: Calendar });
-    items.push({ title: "Estúdio Virtual", url: "/hub-dub/daw", icon: Activity });
+    if (!isRestrictedRole) {
+      items.push({ title: "Estúdio Virtual", url: "/hub-dub/daw", icon: Activity });
+    }
     if (isStudioAdmin) {
       items.push({ title: pt.nav.takes, url: `/hub-dub/studio/${studioId}/takes`, icon: Music });
     }

@@ -3,6 +3,7 @@ import { useProductions } from "@studio/hooks/use-productions";
 import { useSessions } from "@studio/hooks/use-sessions";
 import { useStudio } from "@studio/hooks/use-studios";
 import { useStaff } from "@studio/hooks/use-staff";
+import { useAuth } from "@studio/hooks/use-auth";
 import { useStudioRole } from "@studio/hooks/use-studio-role";
 import { DashboardCard } from "@studio/components/dashboard/dashboard-card";
 import { ProductionCard } from "@studio/components/dashboard/production-card";
@@ -11,7 +12,7 @@ import {
   PageSection, PageHeader, StatCard
 } from "@studio/components/ui/design-system";
 import { Button } from "@studio/components/ui/button";
-import { Film, Calendar, Users, Activity, Plus, Clock, UserPlus, ArrowRight, History, PlayCircle, ToggleRight, ToggleLeft } from "lucide-react";
+import { Film, Calendar, Users, Activity, Plus, Clock, UserPlus, ArrowRight, History, PlayCircle, ToggleRight, ToggleLeft, LogOut, Mic } from "lucide-react";
 import { Link } from "wouter";
 import { pt } from "@studio/lib/i18n";
 import { isSessionVisibleOnDashboard } from "@studio/lib/session-status";
@@ -20,13 +21,104 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 import { ptBR } from "date-fns/locale";
 
+function DubladorHome({ studioId }: { studioId: string }) {
+  const studio = useStudio(studioId);
+  const { data: sessions, isLoading } = useSessions(studioId);
+  const { logout } = useAuth();
+
+  const sortedSessions = (sessions || []).slice().sort(
+    (a: any, b: any) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
+  );
+
+  const statusLabel: Record<string, { label: string; color: string }> = {
+    scheduled: { label: "Agendada", color: "hsl(217 91% 60%)" },
+    active: { label: "Em andamento", color: "hsl(160 84% 39%)" },
+    completed: { label: "Concluída", color: "hsl(var(--muted-foreground))" },
+    cancelled: { label: "Cancelada", color: "hsl(0 72% 50%)" },
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-start py-16 px-4">
+      <div className="w-full max-w-lg">
+        {/* Studio name */}
+        <div className="text-center mb-10">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl border border-border/70 bg-card/70 flex items-center justify-center">
+              <img src="/logo.svg" alt="V.HUB" className="h-6 w-6" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: "hsl(var(--foreground))" }}>
+              {studio?.name || "Estúdio"}
+            </h1>
+          </div>
+          <p className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Suas sessões de gravação</p>
+        </div>
+
+        {/* Sessions list */}
+        <div className="flex flex-col gap-3">
+          {isLoading && (
+            <div className="text-center py-10 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Carregando sessões...</div>
+          )}
+          {!isLoading && sortedSessions.length === 0 && (
+            <div className="text-center py-10 rounded-xl border border-border/40" style={{ background: "rgba(255,255,255,0.03)", color: "hsl(var(--muted-foreground))" }}>
+              <Mic className="w-8 h-8 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Nenhuma sessão encontrada.</p>
+            </div>
+          )}
+          {sortedSessions.map((session: any) => {
+            const s = statusLabel[session.status] || { label: session.status, color: "hsl(var(--muted-foreground))" };
+            const canEnter = session.status === "active" || session.status === "scheduled";
+            return (
+              <div key={session.id} className="flex items-center gap-4 rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: "hsl(var(--foreground) / 0.9)" }}>
+                    {session.productionName || session.name || `Sessão`}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-medium" style={{ color: s.color }}>{s.label}</span>
+                    <span className="text-xs" style={{ color: "hsl(var(--muted-foreground) / 0.6)" }}>
+                      {new Date(session.scheduledAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                </div>
+                {canEnter && (
+                  <Link href={`/hub-dub/studio/${studioId}/sessions/${session.id}/room`}>
+                    <Button size="sm" className="shrink-0 gap-1.5" style={{ background: "hsl(var(--primary))", color: "white" }}>
+                      <PlayCircle className="w-3.5 h-3.5" />
+                      Entrar
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer actions */}
+        <div className="mt-10 flex flex-col items-center gap-3">
+          <Link href="/hub-dub/profile">
+            <button className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Perfil</button>
+          </Link>
+          <button onClick={logout} className="flex items-center gap-1.5 text-xs" style={{ color: "hsl(0 72% 50% / 0.7)" }}>
+            <LogOut className="w-3.5 h-3.5" /> Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
   const studio = useStudio(studioId);
   const { data: productions } = useProductions(studioId);
   const { data: sessions } = useSessions(studioId);
-  const { canCreateProductions, canCreateSessions, canManageMembers } = useStudioRole(studioId);
+  const { canCreateProductions, canCreateSessions, canManageMembers, hasMinRole } = useStudioRole(studioId);
+  const isRestrictedRole = !hasMinRole("diretor");
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+
+  if (isRestrictedRole) {
+    return <DubladorHome studioId={studioId} />;
+  }
 
   const upcomingSessions = (sessions || []).filter(s =>
     isSessionVisibleOnDashboard(s.scheduledAt, s.durationMinutes ?? 60)
