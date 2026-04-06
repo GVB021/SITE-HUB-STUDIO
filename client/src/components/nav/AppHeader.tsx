@@ -32,12 +32,6 @@ export function AppHeader({
           <Link href="/hub-dub" className="hover:text-foreground transition-colors">
             HUBDUB
           </Link>
-          <Link href="/hubschool" className="hover:text-foreground transition-colors">
-            HUBSCHOOL
-          </Link>
-          <Link href="/hub-align" className="hover:text-foreground transition-colors">
-            HUBALIGN
-          </Link>
         </nav>
 
         <div className="flex items-center gap-3">
