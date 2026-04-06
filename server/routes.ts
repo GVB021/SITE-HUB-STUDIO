@@ -1759,6 +1759,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(200).json(allTakes);
   });
 
+  app.get("/api/admin/takes/grouped", requireAuth, requireAdmin, async (req, res) => {
+    const allTakes = await storage.getAllTakesGrouped();
+    res.status(200).json(allTakes);
+  });
+
   app.delete("/api/admin/takes/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       await storage.deleteTake(req.params.id);

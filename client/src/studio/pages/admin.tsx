@@ -7,8 +7,11 @@ import {
   LogOut, ChevronRight, Trash2, Pencil, Plus, RotateCcw,
   CheckCircle2, AlertCircle, Save, Search, RefreshCw,
   Eye, EyeOff, Activity, Database, BadgeCheck, XCircle,
-  UserCog, ToggleLeft, ToggleRight, Star
+  UserCog, ToggleLeft, ToggleRight, Star, Download, ChevronDown,
+  FolderOpen, Folder, Play, Pause, Volume2
 } from "lucide-react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import { Button } from "@studio/components/ui/button";
 import { Input } from "@studio/components/ui/input";
 import { Badge } from "@studio/components/ui/badge";
@@ -1215,22 +1218,187 @@ function SessionsSection() {
   );
 }
 
+function getFilenameFromUrl(url: string): string {
+  try {
+    const decoded = decodeURIComponent(url);
+    const parts = decoded.split("/");
+    return parts[parts.length - 1] || "take.wav";
+  } catch {
+    return "take.wav";
+  }
+}
+
+async function downloadSessionZip(sessionTitle: string, takes: any[]) {
+  const zip = new JSZip();
+  const fetchPromises = takes.map(async (take) => {
+    try {
+      const resp = await fetch(take.audioUrl);
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const buf = await blob.arrayBuffer();
+      const charFolder = take.characterName || "sem-personagem";
+      const actorFolder = take.voiceActorName || "sem-dublador";
+      const filename = getFilenameFromUrl(take.audioUrl);
+      zip.folder(charFolder)?.folder(actorFolder)?.file(filename, buf);
+    } catch {
+      // skip failed files
+    }
+  });
+  await Promise.all(fetchPromises);
+  const content = await zip.generateAsync({ type: "blob" });
+  const safeName = (sessionTitle || "sessao").replace(/[^a-zA-Z0-9_\-]/g, "_");
+  saveAs(content, `${safeName}.zip`);
+}
+
+function TakeRow({ take, onDelete }: { take: any; onDelete: (t: any) => void }) {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useState<HTMLAudioElement | null>(null);
+
+  const filename = getFilenameFromUrl(take.audioUrl);
+
+  const togglePlay = () => {
+    const existing = document.querySelector(`audio[data-take-id="${take.id}"]`) as HTMLAudioElement | null;
+    if (existing) {
+      if (existing.paused) { existing.play(); setPlaying(true); }
+      else { existing.pause(); setPlaying(false); }
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors group">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-mono text-white/50 truncate">{filename}</p>
+        <div className="flex items-center gap-3 mt-1">
+          {take.qualityScore !== null && (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${take.qualityScore >= 80 ? "bg-emerald-500/15 text-emerald-400" : take.qualityScore >= 50 ? "bg-amber-500/15 text-amber-400" : "bg-red-500/15 text-red-400"}`}>
+              Q: {Math.round(take.qualityScore)}
+            </span>
+          )}
+          {take.aiRecommended && <span className="text-[10px] text-violet-400 font-medium">AI</span>}
+          {take.isPreferred && <span className="text-[10px] text-primary font-medium">Preferido</span>}
+          <span className="text-[10px] text-white/30">{take.durationSeconds?.toFixed(1)}s</span>
+          <span className="text-[10px] text-white/30">{take.createdAt ? new Date(take.createdAt).toLocaleDateString("pt-BR") : ""}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Hidden audio element */}
+        <audio
+          data-take-id={take.id}
+          src={take.audioUrl}
+          onEnded={() => setPlaying(false)}
+          onPause={() => setPlaying(false)}
+          onPlay={() => setPlaying(true)}
+          className="hidden"
+        />
+
+        {/* Preview */}
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={togglePlay}
+            className="h-7 px-2 rounded flex items-center gap-1 text-[10px] text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+            title="Preview"
+          >
+            {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+          </button>
+          <audio
+            src={take.audioUrl}
+            controls
+            className="h-6 w-36 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ maxWidth: 144 }}
+          />
+        </div>
+
+        {/* Download */}
+        <a
+          href={take.audioUrl}
+          download={filename}
+          className="h-7 px-2 rounded flex items-center gap-1 text-[10px] text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          title="Download"
+        >
+          <Download className="h-3 w-3" />
+        </a>
+
+        {/* Delete */}
+        <button
+          type="button"
+          onClick={() => onDelete(take)}
+          className="h-7 px-2 rounded flex items-center text-destructive/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          title="Excluir"
+          data-testid={`button-delete-take-${take.id}`}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TakesSection() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
+  const [openStudios, setOpenStudios] = useState<Set<string>>(new Set());
+  const [openProductions, setOpenProductions] = useState<Set<string>>(new Set());
+  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set());
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [zipping, setZipping] = useState<string | null>(null);
 
   const { data: takesList = [], isLoading } = useQuery({
-    queryKey: ["/api/admin/takes"],
-    queryFn: () => authFetch("/api/admin/takes") as Promise<any[]>,
-    refetchInterval: 5000,
+    queryKey: ["/api/admin/takes/grouped"],
+    queryFn: () => authFetch("/api/admin/takes/grouped") as Promise<any[]>,
+    refetchInterval: 10000,
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => authFetch(`/api/admin/takes/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/takes"] }); qc.invalidateQueries({ queryKey: ["/api/admin/stats"] }); toast({ title: "Take excluido" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/takes/grouped"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Take excluido" });
+    },
     onError: (e: any) => toast({ title: e.message || "Falha", variant: "destructive" }),
   });
+
+  const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setter(next);
+  };
+
+  // Group: studio > production > session > character+actor
+  const byStudio = new Map<string, { name: string; productions: Map<string, { id: string; name: string; sessions: Map<string, { id: string; title: string; groups: Map<string, { charName: string; actorName: string; takes: any[] }> }> }> }>();
+
+  for (const take of takesList) {
+    const sId = take.studioId || "sem-estudio";
+    const sName = take.studioName || "Sem Estúdio";
+    const pId = take.productionId || "sem-producao";
+    const pName = take.productionName || "Sem Produção";
+    const sesId = take.sessionId || "sem-sessao";
+    const sesTitle = take.sessionTitle || "Sem Sessão";
+    const groupKey = `${take.characterName || "—"}__${take.voiceActorName || "—"}`;
+
+    if (!byStudio.has(sId)) byStudio.set(sId, { name: sName, productions: new Map() });
+    const studio = byStudio.get(sId)!;
+    if (!studio.productions.has(pId)) studio.productions.set(pId, { id: pId, name: pName, sessions: new Map() });
+    const prod = studio.productions.get(pId)!;
+    if (!prod.sessions.has(sesId)) prod.sessions.set(sesId, { id: sesId, title: sesTitle, groups: new Map() });
+    const sess = prod.sessions.get(sesId)!;
+    if (!sess.groups.has(groupKey)) sess.groups.set(groupKey, { charName: take.characterName || "—", actorName: take.voiceActorName || "—", takes: [] });
+    sess.groups.get(groupKey)!.takes.push(take);
+  }
+
+  const handleSessionZip = async (sessionId: string, sessionTitle: string, takes: any[]) => {
+    setZipping(sessionId);
+    try {
+      await downloadSessionZip(sessionTitle, takes);
+    } catch {
+      toast({ title: "Erro ao gerar ZIP", variant: "destructive" });
+    } finally {
+      setZipping(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -1238,62 +1406,141 @@ function TakesSection() {
         <h2 className="text-xl font-semibold">Audio Takes</h2>
         <span className="text-sm text-muted-foreground">{takesList.length} takes no total</span>
       </div>
-      <div className="vhub-card overflow-hidden">
-        <div className="p-0">
-          {isLoading ? <div className="p-6 text-sm text-muted-foreground">Carregando...</div> : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/8 bg-white/3">
-                  <th className="text-left p-3 font-medium text-foreground/70">ID do Take</th>
-                  <th className="text-left p-3 font-medium text-foreground/70">Qualidade</th>
-                  <th className="text-left p-3 font-medium text-foreground/70">Marcadores</th>
-                  <th className="text-left p-3 font-medium text-foreground/70 hidden md:table-cell">Duracao</th>
-                  <th className="text-left p-3 font-medium text-foreground/70 hidden md:table-cell">Criado em</th>
-                  <th className="text-right p-3 font-medium text-foreground/70">Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {takesList.map((take: any) => (
-                  <tr key={take.id} className="border-b border-white/6 last:border-0 hover:bg-white/3" data-testid={`row-take-${take.id}`}>
-                    <td className="p-3 font-mono text-xs">{take.id.slice(0, 8)}…</td>
-                    <td className="p-3">
-                      {take.qualityScore !== null ? (
-                        <span className={`font-medium ${take.qualityScore >= 80 ? "text-emerald-400" : take.qualityScore >= 50 ? "text-amber-400" : "text-red-400"}`}>
-                          {Math.round(take.qualityScore)}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex gap-1">
-                        {take.aiRecommended && <Badge variant="secondary" className="text-xs px-1 py-0"><Star className="h-2.5 w-2.5 mr-0.5" />AI</Badge>}
-                        {take.isPreferred && <Badge variant="default" className="text-xs px-1 py-0">Preferido</Badge>}
-                      </div>
-                    </td>
-                    <td className="p-3 text-muted-foreground hidden md:table-cell">{take.durationSeconds?.toFixed(1)}s</td>
-                    <td className="p-3 text-muted-foreground hidden md:table-cell text-xs">
-                      {take.createdAt ? new Date(take.createdAt).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="p-3 text-right">
-                      <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" 
-                        onClick={() => setDeleteConfirm(take)} 
-                        data-testid={`button-delete-take-${take.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {takesList.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">Nenhum take encontrado</td></tr>}
-              </tbody>
-            </table>
-          )}
+
+      {isLoading ? (
+        <div className="vhub-card p-6 text-sm text-muted-foreground">Carregando...</div>
+      ) : takesList.length === 0 ? (
+        <div className="vhub-card p-6 text-sm text-muted-foreground text-center">Nenhum take encontrado</div>
+      ) : (
+        <div className="space-y-2">
+          {Array.from(byStudio.entries()).map(([studioId, studio]) => {
+            const studioOpen = openStudios.has(studioId);
+            const studioTakesCount = Array.from(studio.productions.values()).reduce((acc, p) =>
+              acc + Array.from(p.sessions.values()).reduce((a, s) =>
+                a + Array.from(s.groups.values()).reduce((b, g) => b + g.takes.length, 0), 0), 0);
+
+            return (
+              <div key={studioId} className="vhub-card overflow-hidden">
+                {/* Studio header */}
+                <button
+                  type="button"
+                  onClick={() => toggle(openStudios, studioId, setOpenStudios)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
+                >
+                  {studioOpen ? <FolderOpen className="h-4 w-4 text-primary shrink-0" /> : <Folder className="h-4 w-4 text-white/50 shrink-0" />}
+                  <Building2 className="h-3.5 w-3.5 text-white/40 shrink-0" />
+                  <span className="font-semibold text-sm text-white">{studio.name}</span>
+                  <span className="text-xs text-white/30 ml-1">{studioTakesCount} takes</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-white/30 ml-auto transition-transform ${studioOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {studioOpen && (
+                  <div className="border-t border-white/5 px-3 py-2 space-y-2">
+                    {Array.from(studio.productions.entries()).map(([prodId, prod]) => {
+                      const prodOpen = openProductions.has(prodId);
+                      const prodTakesCount = Array.from(prod.sessions.values()).reduce((a, s) =>
+                        a + Array.from(s.groups.values()).reduce((b, g) => b + g.takes.length, 0), 0);
+
+                      return (
+                        <div key={prodId} className="rounded-lg border border-white/5 overflow-hidden">
+                          {/* Production header */}
+                          <button
+                            type="button"
+                            onClick={() => toggle(openProductions, prodId, setOpenProductions)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors bg-white/[0.01]"
+                          >
+                            <Film className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+                            <span className="font-medium text-sm text-white/90">{prod.name}</span>
+                            <span className="text-xs text-white/30 ml-1">{prodTakesCount} takes</span>
+                            <ChevronDown className={`h-3 w-3 text-white/30 ml-auto transition-transform ${prodOpen ? "rotate-180" : ""}`} />
+                          </button>
+
+                          {prodOpen && (
+                            <div className="px-2 py-1.5 space-y-1.5">
+                              {Array.from(prod.sessions.entries()).map(([sesId, sess]) => {
+                                const sesOpen = openSessions.has(sesId);
+                                const sesTakes = Array.from(sess.groups.values()).flatMap(g => g.takes);
+
+                                return (
+                                  <div key={sesId} className="rounded-md border border-white/5 overflow-hidden">
+                                    {/* Session header */}
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.02]">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggle(openSessions, sesId, setOpenSessions)}
+                                        className="flex-1 flex items-center gap-2 min-w-0 hover:text-white transition-colors"
+                                      >
+                                        <Calendar className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                        <span className="font-medium text-xs text-white/80 truncate">{sess.title}</span>
+                                        <span className="text-[10px] text-white/30 shrink-0">{sesTakes.length} takes</span>
+                                        <ChevronDown className={`h-3 w-3 text-white/30 shrink-0 transition-transform ${sesOpen ? "rotate-180" : ""}`} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSessionZip(sesId, sess.title, sesTakes)}
+                                        disabled={zipping === sesId}
+                                        className="shrink-0 h-6 px-2 rounded text-[10px] flex items-center gap-1 text-white/50 hover:text-white hover:bg-white/10 transition-colors border border-white/10"
+                                        title="Download todos os takes da sessão (ZIP)"
+                                      >
+                                        <Download className="h-3 w-3" />
+                                        {zipping === sesId ? "Gerando..." : "ZIP sessão"}
+                                      </button>
+                                    </div>
+
+                                    {sesOpen && (
+                                      <div className="px-2 py-1.5 space-y-1.5">
+                                        {Array.from(sess.groups.entries()).map(([groupKey, group]) => {
+                                          const groupOpen = openGroups.has(`${sesId}__${groupKey}`);
+                                          return (
+                                            <div key={groupKey} className="rounded border border-white/5 overflow-hidden">
+                                              {/* Character + Actor header */}
+                                              <button
+                                                type="button"
+                                                onClick={() => toggle(openGroups, `${sesId}__${groupKey}`, setOpenGroups)}
+                                                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors text-left"
+                                              >
+                                                <Volume2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                                                <span className="text-xs text-white/70 font-medium">{group.charName}</span>
+                                                <span className="text-[10px] text-white/40 mx-1">—</span>
+                                                <span className="text-xs text-white/50">{group.actorName}</span>
+                                                <span className="text-[10px] text-white/30 ml-auto">{group.takes.length} takes</span>
+                                                <ChevronDown className={`h-3 w-3 text-white/30 ml-1 transition-transform ${groupOpen ? "rotate-180" : ""}`} />
+                                              </button>
+
+                                              {groupOpen && (
+                                                <div className="px-2 pb-2 space-y-1">
+                                                  {group.takes.map((take: any) => (
+                                                    <TakeRow key={take.id} take={take} onDelete={setDeleteConfirm} />
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
+
       <ConfirmDialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
         onConfirm={() => deleteMut.mutate(deleteConfirm.id)}
         title="Excluir Take"
-        description="Excluir permanentemente este take de audio? O arquivo WAV no Google Drive nao sera removido."
+        description="Excluir permanentemente este take de audio? O arquivo WAV no Supabase nao sera removido."
       />
     </div>
   );
