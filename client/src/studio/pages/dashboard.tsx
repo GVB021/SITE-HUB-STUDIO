@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import { useProductions } from "@studio/hooks/use-productions";
 import { useSessions } from "@studio/hooks/use-sessions";
 import { useStudio } from "@studio/hooks/use-studios";
@@ -11,7 +11,7 @@ import {
   PageSection, PageHeader, StatCard
 } from "@studio/components/ui/design-system";
 import { Button } from "@studio/components/ui/button";
-import { Film, Calendar, Users, Activity, Plus, Clock, UserPlus, ArrowRight, History, PlayCircle, ToggleRight, ToggleLeft } from "lucide-react";
+import { Film, Calendar, Users, Activity, Plus, Clock, UserPlus, ArrowRight, History, PlayCircle } from "lucide-react";
 import { Link } from "wouter";
 import { pt } from "@studio/lib/i18n";
 import { isSessionVisibleOnDashboard } from "@studio/lib/session-status";
@@ -25,8 +25,8 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
   const { data: productions } = useProductions(studioId);
   const { data: sessions } = useSessions(studioId);
   const { canCreateProductions, canCreateSessions, canManageMembers } = useStudioRole(studioId);
-  const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const upcomingSessions = (sessions || []).filter(s =>
     isSessionVisibleOnDashboard(s.scheduledAt, s.durationMinutes ?? 60)
@@ -45,6 +45,19 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
     ? productions?.find(p => p.id === currentOrNextSession.productionId)
     : null;
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = 0.75;
+    const handleTimeUpdate = () => {
+      if (video.currentTime >= 6) {
+        video.currentTime = 0;
+      }
+    };
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
+  }, [currentProduction]);
+
   const recentProductions = productions?.slice(0, 5) || [];
   const recentSessions = sessions?.filter(s => new Date(s.scheduledAt) < now).slice(0, 5) || [];
 
@@ -53,9 +66,9 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
   );
 
   return (
-    <PageSection className={cn("max-w-[1600px] mx-auto", animationsEnabled ? "animate-in fade-in duration-700" : "")}>
+    <PageSection className="max-w-[1600px] mx-auto animate-in fade-in duration-700">
       <div className="flex flex-col gap-8">
-        {/* Header with Animation Toggle */}
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
@@ -67,16 +80,6 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
           </div>
           
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setAnimationsEnabled(!animationsEnabled)}
-              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-white transition-colors"
-              aria-label={animationsEnabled ? "Desativar animações" : "Ativar animações"}
-              type="button"
-            >
-              {animationsEnabled ? <ToggleRight className="w-5 h-5 text-primary" /> : <ToggleLeft className="w-5 h-5" />}
-              {animationsEnabled ? "Animações ON" : "Animações OFF"}
-            </button>
-
             <div className="flex gap-2">
               {canCreateProductions && (
                 <Button size="sm" className="gap-1.5 vhub-btn-sm vhub-btn-primary shadow-lg shadow-primary/20" asChild>
@@ -99,13 +102,22 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
         {/* Hero Section: Current/Next Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Featured Production Card (Poster Style) */}
-          <div className={cn(
-            "relative overflow-hidden rounded-2xl border border-white/10 bg-black aspect-[16/9] lg:aspect-auto flex flex-col justify-end",
-            animationsEnabled && "transition-all duration-300 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/10 group"
-          )}>
-            {/* @ts-ignore */}
-            {currentProduction?.posterUrl ? (
-              <div 
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black aspect-[16/9] lg:aspect-auto flex flex-col justify-end transition-all duration-300 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/10 group">
+              {/* @ts-ignore */}
+            {currentProduction?.videoUrl ? (
+              <video
+                ref={videoRef}
+                /* @ts-ignore */
+                src={currentProduction.videoUrl}
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ opacity: 0.70 }}
+              />
+            ) : /* @ts-ignore */ currentProduction?.posterUrl ? (
+              <div
                 className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
                 /* @ts-ignore */
                 style={{ backgroundImage: `url(${currentProduction.posterUrl})` }}
@@ -165,10 +177,7 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
           </div>
 
           {/* Calendar & Sessions */}
-          <div className={cn(
-            "relative overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-6 flex flex-col md:flex-row gap-6",
-            animationsEnabled && "transition-all duration-300 hover:border-white/20"
-          )}>
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-6 flex flex-col md:flex-row gap-6 transition-all duration-300 hover:border-white/20">
             <div className="flex-shrink-0 mx-auto md:mx-0">
               <DayPicker
                 mode="single"
@@ -234,10 +243,7 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
                   recentProductions.map(prod => (
                     <div 
                       key={prod.id} 
-                      className={cn(
-                        "flex items-center gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02]",
-                        animationsEnabled && "transition-all hover:bg-white/[0.04]"
-                      )}
+                      className="flex items-center gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:bg-white/[0.04]"
                     >
                       <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                         <Film className="h-5 w-5 text-primary" />
@@ -275,10 +281,7 @@ const Dashboard = memo(function Dashboard({ studioId }: { studioId: string }) {
                     <Link 
                       key={session.id} 
                       href={`/hub-dub/studio/${studioId}/sessions/${session.id}/room`}
-                      className={cn(
-                        "flex items-center gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02] group",
-                        animationsEnabled && "transition-all hover:bg-white/[0.04] hover:border-primary/20 hover:translate-x-1"
-                      )}
+                      className="flex items-center gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02] group transition-all hover:bg-white/[0.04] hover:border-primary/20 hover:translate-x-1"
                     >
                       <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0 group-hover:bg-violet-500/20 transition-colors">
                         <Clock className="h-5 w-5 text-violet-400" />

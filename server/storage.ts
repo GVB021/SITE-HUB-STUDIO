@@ -6,6 +6,7 @@ import {
   studioProfiles,
   studioMemberships,
   userStudioRoles,
+  userRoles,
   productions,
   sessions,
   sessionParticipants,
@@ -387,6 +388,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUser(id: string): Promise<void> {
+    // Nullify takes.reviewedBy (nullable FK)
+    await db.update(takes).set({ reviewedBy: null } as any).where(eq(takes.reviewedBy, id));
+    // Delete takes where voiceActorId = id
+    await db.delete(takes).where(eq(takes.voiceActorId, id));
+    // Delete session participants
+    await db.delete(sessionParticipants).where(eq(sessionParticipants.userId, id));
+    // Delete notifications
+    await db.delete(notifications).where(eq(notifications.userId, id));
+    // Delete audit log entries
+    await db.delete(auditLog).where(eq(auditLog.userId, id));
+    // Delete userRoles
+    await db.delete(userRoles).where(eq(userRoles.userId, id));
+    // Delete studio memberships (userStudioRoles cascade via DB)
+    await db.delete(studioMemberships).where(eq(studioMemberships.userId, id));
+    // Delete characters voice actor reference (set null via update)
+    await db.update(characters).set({ voiceActorId: null } as any).where(eq(characters.voiceActorId, id));
     await db.delete(users).where(eq(users.id, id));
   }
 
@@ -397,6 +414,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteStudio(id: string): Promise<void> {
+    // Get all productions for this studio
+    const studioProds = await db.select({ id: productions.id }).from(productions).where(eq(productions.studioId, id));
+    for (const prod of studioProds) {
+      await this.deleteProduction(prod.id);
+    }
+    // Delete staff
+    await db.delete(staff).where(eq(staff.studioId, id));
+    // Delete memberships (userStudioRoles cascade via DB)
+    await db.delete(studioMemberships).where(eq(studioMemberships.studioId, id));
+    // studioProfiles has onDelete: cascade — will auto-delete
     await db.delete(studios).where(eq(studios.id, id));
   }
 
@@ -405,6 +432,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProduction(id: string): Promise<void> {
+    // Get all sessions for this production
+    const prodSessions = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.productionId, id));
+    for (const sess of prodSessions) {
+      await this.deleteSession(sess.id);
+    }
+    // Delete characters
+    await db.delete(characters).where(eq(characters.productionId, id));
     await db.delete(productions).where(eq(productions.id, id));
   }
 
@@ -418,6 +452,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSession(id: string): Promise<void> {
+    // Delete takes first
+    await db.delete(takes).where(eq(takes.sessionId, id));
+    // Delete participants
+    await db.delete(sessionParticipants).where(eq(sessionParticipants.sessionId, id));
     await db.delete(sessions).where(eq(sessions.id, id));
   }
 

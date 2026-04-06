@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import {
   Building2, Calendar, Film, LayoutDashboard,
-  Settings, Users, LogOut, Bell, ShieldCheck, Music, UserCircle, Activity
+  Settings, Users, LogOut, ShieldCheck, Music, UserCircle
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -27,12 +27,6 @@ export const AppSidebar = memo(function AppSidebar({ studioId }: AppSidebarProps
   const { user, logout } = useAuth();
   const { canManageMembers, canViewStaff, hasMinRole, role } = useStudioRole(studioId);
 
-  const { data: unreadCount } = useQuery({
-    queryKey: ["/api/notifications/unread-count"],
-    queryFn: () => authFetch("/api/notifications/unread-count"),
-    refetchInterval: 30000,
-  });
-
   const isStudioAdmin = user?.role === "platform_owner" || hasMinRole("studio_admin");
   const isRestrictedRole = !hasMinRole("diretor");
 
@@ -44,9 +38,6 @@ export const AppSidebar = memo(function AppSidebar({ studioId }: AppSidebarProps
       items.push({ title: pt.nav.productions, url: `/hub-dub/studio/${studioId}/productions`, icon: Film });
     }
     items.push({ title: pt.nav.sessions, url: `/hub-dub/studio/${studioId}/sessions`, icon: Calendar });
-    if (!isRestrictedRole) {
-      items.push({ title: "Estúdio Virtual", url: "/hub-dub/daw", icon: Activity });
-    }
     if (isStudioAdmin) {
       items.push({ title: pt.nav.takes, url: `/hub-dub/studio/${studioId}/takes`, icon: Music });
     }
@@ -110,28 +101,6 @@ export const AppSidebar = memo(function AppSidebar({ studioId }: AppSidebarProps
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === `/hub-dub/studio/${studioId}/notifications`}
-                  className={`h-8 rounded-md transition-all duration-150 ${
-                    location === `/hub-dub/studio/${studioId}/notifications`
-                      ? activeItemClass
-                      : inactiveItemClass
-                  }`}
-                >
-                  <Link href={`/hub-dub/studio/${studioId}/notifications`} className="flex items-center gap-2.5 px-2">
-                    <Bell className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-sm">{pt.notifications.title}</span>
-                    {(unreadCount?.count ?? 0) > 0 && (
-                      <span className="ml-auto bg-primary text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center" data-testid="badge-unread-count">
-                        {unreadCount.count}
-                      </span>
-                    )}
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
               {isStudioAdmin && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
