@@ -1985,11 +1985,16 @@ export default function RecordingRoom() {
                   const visibleTakes = isPrivileged
                     ? takesList
                     : takesList.filter((t: any) => t.voiceActorId === user?.id || t.userId === user?.id);
-                  return visibleTakes.length === 0 ? (
+                  const sortedTakes = [...visibleTakes].sort((a: any, b: any) => {
+                    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                    return ta - tb;
+                  });
+                  return sortedTakes.length === 0 ? (
                     <div className="text-sm text-center py-10" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                       {isPrivileged ? "Nenhum take gravado nesta sessao" : "Nenhum take gravado nesta sessao"}
                     </div>
-                  ) : visibleTakes.map((take: any) => (
+                  ) : sortedTakes.map((take: any, takeIdx: number) => (
                   <div key={take.id} className="flex flex-col gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="flex items-center gap-3">
                       <button
@@ -2014,6 +2019,7 @@ export default function RecordingRoom() {
                       </button>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.07)", color: "hsl(var(--muted-foreground))" }}>#{takeIdx + 1}</span>
                           <span className="text-sm font-medium truncate" style={{ color: "hsl(var(--foreground) / 0.85)" }}>
                             {take.characterName || "Take"}
                           </span>
@@ -2766,11 +2772,6 @@ export default function RecordingRoom() {
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                    {isDone && (
-                      <span className="ml-auto flex items-center gap-1.5 text-[16px] font-medium" style={{ color: "hsl(160 84% 60%)" }}>
-                        <CheckCircle2 className="w-5 h-5" /> Salvo
-                      </span>
                     )}
                   </div>
                   {editingLineIndex === i ? (

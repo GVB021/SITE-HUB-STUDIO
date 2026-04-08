@@ -831,6 +831,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         audioUrl: z.string().optional(),
         timecode: z.string().optional(),
         startTimeSeconds: z.coerce.number().min(0).optional(),
+        voiceActorName: z.string().optional(),
+        characterName: z.string().optional(),
       }).parse(req.body);
 
       const sessionCheck = await verifySessionAccess(req, res, sessionId);
@@ -904,11 +906,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             `${actorRow?.firstName || ""} ${actorRow?.lastName || ""}`.trim() ||
             actorRow?.email ||
             "";
-          const actorFolder = normalizeSegment(actorNameRaw);
-          const characterFolder = normalizeSegment(characterRow?.name || "");
 
-          const actorToken = normalizeTokenUpper(actorNameRaw);
-          const characterToken = normalizeTokenUpper(characterRow?.name || "");
+          const profileActorName = String(body.voiceActorName || "").trim();
+          const profileCharName = String(body.characterName || "").trim();
+
+          const resolvedActorName = profileActorName || actorNameRaw;
+          const resolvedCharName = profileCharName || characterRow?.name || "";
+
+          const actorFolder = normalizeSegment(resolvedActorName);
+          const characterFolder = normalizeSegment(resolvedCharName);
+
+          const actorToken = normalizeTokenUpper(resolvedActorName);
+          const characterToken = normalizeTokenUpper(resolvedCharName);
           const filename = `${characterToken}_${actorToken}_${timecodeToken}.wav`;
 
           const baseFolder = normalizeSegment(String(takesPath || "uploads"));
