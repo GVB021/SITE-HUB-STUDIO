@@ -188,6 +188,7 @@ export const takes = pgTable("takes", {
   qualityScore: real("quality_score"),
   aiRecommended: boolean("ai_recommended").default(false),
   createdAt: timestamp("created_at").defaultNow(),
+  voiceActorName: text("voice_actor_name"),
 }, (table) => {
   return {
     sessionIdIdx: index("takes_session_id_idx").on(table.sessionId),
@@ -244,6 +245,7 @@ export type UserRole = typeof userRoles.$inferSelect;
 export type Studio = typeof studios.$inferSelect;
 export type TakeStatus = 'pending' | 'approved' | 'rejected' | 'superseded';
 export type Take = typeof takes.$inferSelect;
+export type TakeWithDetails = Take & { characterName?: string | null; voiceActorName?: string | null; sessionTitle?: string; productionId?: string; productionName?: string; studioId?: string; studioName?: string };
 export type StudioProfile = typeof studioProfiles.$inferSelect;
 export type StudioMembership = typeof studioMemberships.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
@@ -251,7 +253,6 @@ export type Production = typeof productions.$inferSelect;
 export type Character = typeof characters.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type SessionParticipant = typeof sessionParticipants.$inferSelect;
-export type Take = typeof takes.$inferSelect;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type Staff = typeof staff.$inferSelect;
 export type UserStudioRole = typeof userStudioRoles.$inferSelect;

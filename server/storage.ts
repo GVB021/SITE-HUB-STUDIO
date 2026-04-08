@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import {
   studios,
   users,
@@ -482,7 +482,7 @@ export class DatabaseStorage implements IStorage {
         aiRecommended: takes.aiRecommended,
         createdAt: takes.createdAt,
         characterName: characters.name,
-        voiceActorName: users.displayName,
+        voiceActorName: sql<string>`COALESCE(NULLIF(${takes.voiceActorName}, ''), ${users.displayName})`,
         sessionTitle: sessions.title,
         productionId: sessions.productionId,
         productionName: productions.name,

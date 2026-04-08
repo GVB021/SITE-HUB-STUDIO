@@ -869,6 +869,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         audioUrl,
         durationSeconds: body.durationSeconds ?? 0,
         qualityScore: body.qualityScore ?? null,
+        voiceActorName: body.voiceActorName || null,
       });
       const take = await storage.createTake(takeInput);
 
